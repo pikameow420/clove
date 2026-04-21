@@ -1,0 +1,90 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SwipeDecision {
+  liked
+  rejected
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+model User {
+  id           String         @id @default(cuid())
+  externalId   String         @unique
+  createdAt    DateTime       @default(now())
+  swipes       Swipe[]
+  conversations Conversation[]
+}
+
+model Character {
+  id                  String         @id @default(cuid())
+  name                String         @unique
+  imageUrl            String
+  about               String
+  gender              String?
+  interests           Json           @default("[]")
+  personaSystemPrompt String
+  personaFacts        Json           @default("[]")
+  isActive            Boolean        @default(true)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  swipes              Swipe[]
+  conversations       Conversation[]
+}
+
+model Swipe {
+  id          String        @id @default(cuid())
+  userId      String
+  characterId String
+  decision    SwipeDecision
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character   Character     @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, characterId])
+  @@index([userId, decision])
+}
+
+model Conversation {
+  id              String      @id @default(cuid())
+  userId          String
+  characterId     String
+  summary         String?
+  lastMessageAt   DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character       Character   @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  messages        Message[]
+
+  @@unique([userId, characterId])
+  @@index([userId, lastMessageAt])
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String
+  tokenCount     Int?
+  createdAt      DateTime    @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}

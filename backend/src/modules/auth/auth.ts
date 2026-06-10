@@ -16,7 +16,7 @@ async function resolveOrCreateUser(externalId: string): Promise<string> {
 }
 
 export const authPlugin = fp(async (app) => {
-  app.decorateRequest("user", { getter: () => ({ id: "" }) });
+  app.decorateRequest("user", null);
 
   app.addHook("preHandler", async (request: FastifyRequest, reply: FastifyReply) => {
     if (request.url.startsWith("/health") || request.url.startsWith("/characters/admin/import")) {
@@ -29,6 +29,6 @@ export const authPlugin = fp(async (app) => {
     }
 
     const userId = await resolveOrCreateUser(externalId.trim());
-    request.user = { id: userId };
+    request.setDecorator("user", { id: userId });
   });
 });

@@ -5,6 +5,7 @@ import { env } from "../../lib/env";
 import { parsePositiveInt } from "../../lib/pagination";
 import { logger } from "../../lib/logger";
 import { generateCharacterReply, generateCharacterReplyStream } from "../llm/chat-service";
+import { refreshConversationMemory } from "./memory";
 import { assertConversationOwnership, getOrCreateConversation } from "./service";
 
 const conversationByCharacterBody = z.object({
@@ -14,14 +15,6 @@ const conversationByCharacterBody = z.object({
 const messageBodySchema = z.object({
   content: z.string().min(1).max(env.MAX_INPUT_CHARS)
 });
-
-function summarizeIfNeeded(content: string): string | null {
-  if (content.length < 2000) {
-    return null;
-  }
-
-  return `${content.slice(0, 1200)}\n\n[summary truncated for MVP]`;
-}
 
 export const conversationRoutes: FastifyPluginAsync = async (app) => {
   app.get("/conversations", async (request) => {
@@ -166,13 +159,19 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
+      const nextSummary = await refreshConversationMemory({
+        characterName: character.name,
+        existingSummary: conversation.summary,
+        allMessages: [...recentMessages, assistantMessage],
+        latestUserInput: parsedBody.data.content,
+        latestAssistantReply: assistant.content
+      });
+
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: {
           lastMessageAt: assistantMessage.createdAt,
-          summary: summarizeIfNeeded(
-            `${conversation.summary ?? ""}\nUser: ${parsedBody.data.content}\nAssistant: ${assistant.content}`
-          )
+          summary: nextSummary
         }
       });
 
@@ -223,13 +222,19 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
+      const nextSummary = await refreshConversationMemory({
+        characterName: character.name,
+        existingSummary: conversation.summary,
+        allMessages: [...recentMessages, assistantMessage],
+        latestUserInput: parsedBody.data.content,
+        latestAssistantReply: assistant.content
+      });
+
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: {
           lastMessageAt: assistantMessage.createdAt,
-          summary: summarizeIfNeeded(
-            `${conversation.summary ?? ""}\nUser: ${parsedBody.data.content}\nAssistant: ${assistant.content}`
-          )
+          summary: nextSummary
         }
       });
 

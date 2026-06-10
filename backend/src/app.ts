@@ -12,7 +12,7 @@ import { conversationRoutes } from "./modules/conversations/routes";
 
 export function buildApp() {
   const app = Fastify({
-    logger
+    loggerInstance: logger,
   });
 
   app.register(cors, {

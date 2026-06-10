@@ -6,7 +6,7 @@ Fastify + Prisma backend for a swipe-to-chat character app with local Ollama LLM
 
 - Supabase works directly because it is PostgreSQL.
 - Set `DATABASE_URL` to your Supabase connection string in `.env`.
-- Ensure SSL is enabled in URL, for example `?sslmode=require`.
+- Use the direct Supabase URL without `sslmode` query params (`prisma.ts` configures SSL for pg v8+).
 - Run migrations against Supabase:
   - `npm run prisma:deploy`
 
@@ -217,13 +217,20 @@ curl -X POST "http://<backend-laptop-ip>:3001/characters/admin/import" \
   -d '{
     "characters":[
       {
-        "name":"Ava",
-        "imageUrl":"https://example.com/ava.png",
-        "about":"A curious sci-fi explorer.",
+        "name":"Marcia",
+        "imageUrl":"https://example.com/marcia.png",
+        "about":"Night-shift writer who lives on coffee and vinyl.",
         "gender":"female",
-        "interests":["space","robots"],
-        "personaSystemPrompt":"Speak like a warm, adventurous explorer.",
-        "personaFacts":["Loves stargazing","Prefers optimistic tone"]
+        "interests":["music","writing","late-night diners"],
+        "personaSystemPrompt":"Voice: witty, a little guarded, warms up slowly. You have your own life — do not make every message about the user. Occasionally mention what you are doing today, a small win, or something bothering you. Let intimacy build over many chats.",
+        "personaFacts":[
+          "VOICE: lowercase texts, no asterisks, usually 1-3 lines",
+          "JOB: barista by day, writes fiction at 2am",
+          "ARC NOW: trying to finish a short story for a contest — deadline in 10 days",
+          "DRAMA: fighting with roommate over rent",
+          "GOAL: wants her own place by summer",
+          "WITH USER: flirty only after user flirts first; remember details they share"
+        ]
       }
     ]
   }'

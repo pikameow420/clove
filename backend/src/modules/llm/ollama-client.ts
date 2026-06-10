@@ -15,20 +15,36 @@ type OllamaStreamChunk = {
   eval_count?: number;
 };
 
+type OllamaOptions = {
+  temperature?: number;
+  maxTokens?: number;
+};
+
 function withTimeoutSignal(ms: number): AbortSignal {
   return AbortSignal.timeout(ms);
 }
 
-export async function chatWithOllama(messages: OllamaMessage[]): Promise<{ content: string; tokenCount: number | null }> {
+function buildRequestBody(messages: OllamaMessage[], stream: boolean, options?: OllamaOptions) {
+  return {
+    model: env.OLLAMA_MODEL,
+    stream,
+    messages,
+    options: {
+      temperature: options?.temperature ?? 0.8,
+      num_predict: options?.maxTokens ?? 256
+    }
+  };
+}
+
+export async function chatWithOllama(
+  messages: OllamaMessage[],
+  options?: OllamaOptions
+): Promise<{ content: string; tokenCount: number | null }> {
   const response = await fetch(`${env.OLLAMA_BASE_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: withTimeoutSignal(env.LLM_TIMEOUT_MS),
-    body: JSON.stringify({
-      model: env.OLLAMA_MODEL,
-      stream: false,
-      messages
-    })
+    body: JSON.stringify(buildRequestBody(messages, false, options))
   });
 
   if (!response.ok) {
@@ -48,17 +64,14 @@ export async function chatWithOllama(messages: OllamaMessage[]): Promise<{ conte
 
 export async function streamChatWithOllama(
   messages: OllamaMessage[],
-  onToken: (token: string) => void
+  onToken: (token: string) => void,
+  options?: OllamaOptions
 ): Promise<{ content: string; tokenCount: number | null }> {
   const response = await fetch(`${env.OLLAMA_BASE_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: withTimeoutSignal(env.LLM_TIMEOUT_MS),
-    body: JSON.stringify({
-      model: env.OLLAMA_MODEL,
-      stream: true,
-      messages
-    })
+    body: JSON.stringify(buildRequestBody(messages, true, options))
   });
 
   if (!response.ok || !response.body) {

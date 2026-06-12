@@ -35,28 +35,37 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       likes.map((swipe) => getOrCreateConversation(request.user.id, swipe.characterId))
     );
 
-    const latestByConversation = await prisma.message.groupBy({
-      by: ["conversationId"],
-      where: {
-        conversationId: {
-          in: conversations.map((conversation) => conversation.id)
-        }
-      },
-      _max: {
-        createdAt: true
-      }
-    });
+    const conversationIds = conversations.map((conversation) => conversation.id);
 
-    const latestMap = new Map(
-      latestByConversation.map((item) => [item.conversationId, item._max.createdAt?.toISOString() ?? null])
+    const latestMessages =
+      conversationIds.length > 0
+        ? await prisma.message.findMany({
+            where: { conversationId: { in: conversationIds } },
+            orderBy: { createdAt: "desc" },
+            distinct: ["conversationId"],
+            select: {
+              conversationId: true,
+              content: true,
+              createdAt: true
+            }
+          })
+        : [];
+
+    const latestByConversation = new Map(
+      latestMessages.map((message) => [
+        message.conversationId,
+        { preview: message.content, at: message.createdAt.toISOString() }
+      ])
     );
 
     const items = likes.map((swipe) => {
       const conversation = conversations.find((entry) => entry.characterId === swipe.characterId)!;
+      const latest = latestByConversation.get(conversation.id);
       return {
         conversationId: conversation.id,
         character: swipe.character,
-        lastMessageAt: latestMap.get(conversation.id) ?? conversation.lastMessageAt?.toISOString() ?? null,
+        lastMessageAt: latest?.at ?? conversation.lastMessageAt?.toISOString() ?? null,
+        lastMessagePreview: latest?.preview ?? null,
         matchedAt: swipe.updatedAt
       };
     });

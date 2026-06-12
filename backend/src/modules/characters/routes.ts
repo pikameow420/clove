@@ -52,6 +52,29 @@ export const characterRoutes: FastifyPluginAsync = async (app) => {
     return { items, pageInfo: { hasNextPage, nextCursor } };
   });
 
+  app.get("/characters/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const character = await prisma.character.findFirst({
+      where: {
+        id,
+        isActive: true,
+        swipes: {
+          some: {
+            userId: request.user.id,
+            decision: "liked"
+          }
+        }
+      }
+    });
+
+    if (!character) {
+      return reply.notFound("Character not found");
+    }
+
+    return { character };
+  });
+
   app.post("/characters/admin/import", async (request, reply) => {
     const adminHeader = request.headers["x-admin-key"];
     if (adminHeader !== env.ADMIN_API_KEY) {

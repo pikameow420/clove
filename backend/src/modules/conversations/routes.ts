@@ -31,8 +31,15 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       }
     });
 
-    const conversations = await Promise.all(
-      likes.map((swipe) => getOrCreateConversation(request.user.id, swipe.characterId))
+    const conversations = await prisma.conversation.findMany({
+      where: {
+        userId: request.user.id,
+        characterId: { in: likes.map((swipe) => swipe.characterId) }
+      }
+    });
+
+    const conversationByCharacterId = new Map(
+      conversations.map((conversation) => [conversation.characterId, conversation])
     );
 
     const conversationIds = conversations.map((conversation) => conversation.id);
@@ -59,12 +66,13 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     );
 
     const items = likes.map((swipe) => {
-      const conversation = conversations.find((entry) => entry.characterId === swipe.characterId)!;
-      const latest = latestByConversation.get(conversation.id);
+      const conversation = conversationByCharacterId.get(swipe.characterId);
+      const latest = conversation ? latestByConversation.get(conversation.id) : undefined;
       return {
-        conversationId: conversation.id,
+        conversationId: conversation?.id ?? null,
         character: swipe.character,
-        lastMessageAt: latest?.at ?? conversation.lastMessageAt?.toISOString() ?? null,
+        lastMessageAt:
+          latest?.at ?? conversation?.lastMessageAt?.toISOString() ?? null,
         lastMessagePreview: latest?.preview ?? null,
         matchedAt: swipe.updatedAt
       };

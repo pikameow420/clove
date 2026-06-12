@@ -22,7 +22,13 @@ export function buildApp() {
   app.register(rateLimit, {
     max: env.RATE_LIMIT_MAX,
     timeWindow: env.RATE_LIMIT_WINDOW,
-    keyGenerator: (request) => request.headers["x-user-id"]?.toString() ?? request.ip
+    keyGenerator: (request) => {
+      const auth = request.headers.authorization;
+      if (auth?.startsWith("Bearer ")) {
+        return auth.slice("Bearer ".length, "Bearer ".length + 32);
+      }
+      return request.ip;
+    },
   });
 
   app.get("/health", async () => ({ ok: true }));

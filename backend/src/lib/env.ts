@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
+  SUPABASE_URL: z.string().url(),
   PORT: z.coerce.number().default(3001),
   HOST: z.string().default("0.0.0.0"),
   CORS_ORIGIN: z.string().default("*"),

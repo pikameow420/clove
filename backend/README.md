@@ -14,7 +14,7 @@ Fastify + Prisma backend for a swipe-to-chat character app with local Ollama LLM
 
 1. Copy env file:
    - `cp .env.example .env`
-2. Update `DATABASE_URL` and `ADMIN_API_KEY` in `.env`.
+2. Update `DATABASE_URL`, `SUPABASE_URL`, and `ADMIN_API_KEY` in `.env`.
 3. Install dependencies:
    - `npm install`
 4. Generate Prisma client:
@@ -40,10 +40,12 @@ Use this when you want to quickly test character behavior with Ollama before wir
    - `/reset` clears current CLI conversation history
    - `/exit` exits CLI mode
 
-## Auth Model (MVP)
+## Auth Model
 
-- Every API request must include `x-user-id` header (except `/health` and `/characters/admin/import`).
-- `x-user-id` is treated as an external user identifier and upserted into `users`.
+- User routes require `Authorization: Bearer <supabase_access_token>`.
+- Backend verifies the JWT against Supabase JWKS (`SUPABASE_URL/auth/v1/.well-known/jwks.json`).
+- Token `sub` is upserted into Prisma `User.externalId`.
+- Exempt routes: `/health`, `/characters/admin/import` (uses `x-admin-key` instead).
 
 ## Endpoints
 
@@ -79,18 +81,18 @@ Use this when you want to quickly test character behavior with Ollama before wir
 - Add API base URL in your frontend env (example):
   - `VITE_API_BASE_URL=http://localhost:3001`
 
-### 2) Send user identity on every request
+### 2) Send Supabase access token on every request
 
-- Backend expects `x-user-id` on all user routes.
-- Use your auth user id (or stable guest id) and include it in request headers.
+- Backend expects `Authorization: Bearer <access_token>` on all user routes.
+- Read `session.access_token` from Supabase Auth in the Expo app.
 
 ```ts
-const api = (path: string, init: RequestInit = {}) =>
+const api = (path: string, accessToken: string, init: RequestInit = {}) =>
   fetch(`${import.meta.env.VITE_API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      "x-user-id": currentUserId,
+      Authorization: `Bearer ${accessToken}`,
       ...(init.headers ?? {})
     }
   });
@@ -239,7 +241,7 @@ curl -X POST "http://<backend-laptop-ip>:3001/characters/admin/import" \
 ### Step 7: Connect frontend
 
 - Set frontend API URL to `http://<backend-laptop-ip>:3001`
-- Ensure each request includes `x-user-id`
+- Send Supabase `session.access_token` as Bearer token on each API request
 - Implement swipe list, matches/chat list, and conversation chat flow using endpoints above
 
 ### Step 8: Make backend reachable from other machines
@@ -275,3 +277,9 @@ On the backend laptop:
 - No chat replies but endpoints work:
   - Test Ollama directly with `ollama run mistral:7b-instruct "test"`
   - Check backend logs for Ollama errors
+
+## Security Notes
+
+- Prisma tables in `public` (`"User"`, `"Character"`, etc.) are not protected by Supabase RLS.
+- The mobile app must only reach product data through `clove_backend`, never via Supabase client queries.
+- Before a broad public launch, harden DB access (private schema and/or RLS policies on Prisma tables).

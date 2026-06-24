@@ -48,7 +48,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       conversationIds.length > 0
         ? await prisma.message.findMany({
             where: { conversationId: { in: conversationIds } },
-            orderBy: { createdAt: "desc" },
+            orderBy: [{ conversationId: "asc" }, { createdAt: "desc" }],
             distinct: ["conversationId"],
             select: {
               conversationId: true,
@@ -143,18 +143,18 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       return reply.notFound("Character no longer available");
     }
 
+    const recentMessages = await prisma.message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "asc" },
+      take: env.MAX_CONTEXT_MESSAGES
+    });
+
     const userMessage = await prisma.message.create({
       data: {
         conversationId: conversation.id,
         role: "user",
         content: parsedBody.data.content
       }
-    });
-
-    const recentMessages = await prisma.message.findMany({
-      where: { conversationId: conversation.id },
-      orderBy: { createdAt: "asc" },
-      take: env.MAX_CONTEXT_MESSAGES
     });
 
     if (!stream) {
@@ -230,11 +230,12 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         }
       );
 
+      const storedContent = fullContent || assistant.content;
       const assistantMessage = await prisma.message.create({
         data: {
           conversationId: conversation.id,
           role: "assistant",
-          content: assistant.content,
+          content: storedContent,
           tokenCount: assistant.tokenCount ?? undefined
         }
       });
@@ -244,7 +245,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         existingSummary: conversation.summary,
         allMessages: [...recentMessages, assistantMessage],
         latestUserInput: parsedBody.data.content,
-        latestAssistantReply: assistant.content
+        latestAssistantReply: storedContent
       });
 
       await prisma.conversation.update({
@@ -266,7 +267,12 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         "Streamed assistant response"
       );
 
-      reply.raw.write(`event: done\ndata: ${JSON.stringify({ tokenCount: assistant.tokenCount })}\n\n`);
+      reply.raw.write(
+        `event: done\ndata: ${JSON.stringify({
+          tokenCount: assistant.tokenCount,
+          assistantMessage
+        })}\n\n`
+      );
       reply.raw.end();
       return reply;
     } catch (error) {

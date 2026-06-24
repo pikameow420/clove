@@ -38,6 +38,7 @@ model Character {
   about               String
   gender              String?
   interests           Json           @default("[]")
+  profile             Json           @default("{}")
   personaSystemPrompt String
   personaFacts        Json           @default("[]")
   isActive            Boolean        @default(true)

@@ -101,8 +101,8 @@ export async function updateConversationMemory(params: {
         "You maintain structured memory for a fictional character chat.",
         "Return ONLY valid JSON with this exact shape:",
         '{"characterArc":"string","relationship":"string","openThreads":["string"]}',
-        "characterArc: 2-4 sentences on the CHARACTER's own ongoing life — goals, stress, wins, plans (not the user's life).",
-        "relationship: 2-4 sentences on rapport with the user — tone, what they learned about the user, intimacy level.",
+        "characterArc: 2-4 sentences on the CHARACTER's own ongoing life: goals, stress, wins, plans (not the user's life).",
+        "relationship: 2-4 sentences on rapport with the user: tone, what they learned about the user, intimacy level.",
         "openThreads: up to 5 short bullets of unresolved topics to mention later (promises, questions, inside jokes).",
         "Merge new info with existing memory. Drop stale threads. Be concise."
       ].join("\n")

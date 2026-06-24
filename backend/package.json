@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "cli:chat": "tsx src/cli/chat.ts",
+    "scripts:delete-last-conversation": "tsx scripts/delete-last-conversation.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",

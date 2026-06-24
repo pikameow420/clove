@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../lib/db/prisma";
 import { parsePositiveInt } from "../../lib/pagination";
 import { env } from "../../lib/env";
+import { characterProfileSchema } from "./profile";
 
 const importBodySchema = z.object({
   characters: z
@@ -13,6 +14,7 @@ const importBodySchema = z.object({
         about: z.string().min(1),
         gender: z.string().optional(),
         interests: z.array(z.string()).default([]),
+        profile: characterProfileSchema,
         personaSystemPrompt: z.string().min(1),
         personaFacts: z.array(z.string()).default([])
       })
@@ -95,6 +97,7 @@ export const characterRoutes: FastifyPluginAsync = async (app) => {
             about: character.about,
             gender: character.gender,
             interests: character.interests,
+            profile: character.profile,
             personaSystemPrompt: character.personaSystemPrompt,
             personaFacts: character.personaFacts,
             isActive: true
@@ -105,6 +108,7 @@ export const characterRoutes: FastifyPluginAsync = async (app) => {
             about: character.about,
             gender: character.gender,
             interests: character.interests,
+            profile: character.profile,
             personaSystemPrompt: character.personaSystemPrompt,
             personaFacts: character.personaFacts
           }

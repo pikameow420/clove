@@ -5,6 +5,7 @@ import { env } from "../../lib/env";
 import { parsePositiveInt } from "../../lib/pagination";
 import { logger } from "../../lib/logger";
 import { generateCharacterReply, generateCharacterReplyStream } from "../llm/chat-service";
+import { notifyAssistantReply } from "../../lib/push/expo-push";
 import { refreshConversationMemory } from "./memory";
 import { assertConversationOwnership, getOrCreateConversation } from "./service";
 
@@ -202,6 +203,14 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         "Generated assistant response"
       );
 
+      void notifyAssistantReply({
+        userId: request.user.id,
+        characterId: character.id,
+        characterName: character.name,
+        conversationId: conversation.id,
+        replyContent: assistant.content,
+      });
+
       return {
         userMessage,
         assistantMessage
@@ -266,6 +275,14 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         },
         "Streamed assistant response"
       );
+
+      void notifyAssistantReply({
+        userId: request.user.id,
+        characterId: character.id,
+        characterName: character.name,
+        conversationId: conversation.id,
+        replyContent: storedContent,
+      });
 
       reply.raw.write(
         `event: done\ndata: ${JSON.stringify({

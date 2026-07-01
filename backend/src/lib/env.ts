@@ -13,7 +13,8 @@ const envSchema = z.object({
   MAX_INPUT_CHARS: z.coerce.number().int().positive().default(2000),
   MAX_CONTEXT_MESSAGES: z.coerce.number().int().positive().default(20),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
-  RATE_LIMIT_WINDOW: z.string().default("5 minute")
+  RATE_LIMIT_WINDOW: z.string().default("5 minute"),
+  EXPO_ACCESS_TOKEN: z.string().optional()
 });
 
 export const env = envSchema.parse(process.env);

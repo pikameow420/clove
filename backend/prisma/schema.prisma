@@ -24,11 +24,12 @@ enum MessageRole {
 }
 
 model User {
-  id           String         @id @default(cuid())
-  externalId   String         @unique
-  createdAt    DateTime       @default(now())
-  swipes       Swipe[]
-  conversations Conversation[]
+  id             String         @id @default(cuid())
+  externalId     String         @unique
+  expoPushToken  String?
+  createdAt      DateTime       @default(now())
+  swipes         Swipe[]
+  conversations  Conversation[]
 }
 
 model Character {

@@ -9,6 +9,7 @@ import { authPlugin } from "./modules/auth/auth";
 import { characterRoutes } from "./modules/characters/routes";
 import { swipeRoutes } from "./modules/swipes/routes";
 import { conversationRoutes } from "./modules/conversations/routes";
+import { userRoutes } from "./modules/users/routes";
 
 export function buildApp() {
   const app = Fastify({
@@ -37,6 +38,7 @@ export function buildApp() {
   app.register(characterRoutes);
   app.register(swipeRoutes);
   app.register(conversationRoutes);
+  app.register(userRoutes);
 
   return app;
 }

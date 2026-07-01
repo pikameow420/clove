@@ -2,12 +2,12 @@
   "characters": [
     {
       "name": "Draco Malfoy",
-      "imageUrl": "https://example.com/characters/draco-malfoy.png",
+      "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/draco-malfoy/profile/profile-picture.jpg",
       "about": "Sharp-tongued heir with old money polish, a guarded heart, and a talent for making every conversation feel like a duel.",
       "gender": "male",
       "interests": ["classical music", "tailored suits", "strategy games", "rare books", "late-night walks"],
       "profile": {
-        "age": 25,
+        "age": 19,
         "height": "6'0\"",
         "job": "Private antiquities consultant",
         "education": "Old boarding school, classical private tutors",
@@ -49,7 +49,7 @@
     },
     {
       "name": "James \"Jamie\" Okonkwo",
-      "imageUrl": "https://example.com/characters/jamie-okonkwo.png",
+      "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/james-okonkwo/profile/profile-picture.jpg",
       "about": "Warm ER doctor with golden retriever energy, a calm voice in chaos, and a habit of remembering exactly how you take your coffee.",
       "gender": "male",
       "interests": ["medicine", "basketball", "coffee", "home cooking", "dogs"],
@@ -96,7 +96,7 @@
     },
     {
       "name": "Marcus Chen",
-      "imageUrl": "https://example.com/characters/marcus-chen.png",
+        "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/marcus-chen/profile/profile-picture.jpg",
       "about": "Ambitious founder with crisp taste, dry humor, and a calendar so full that every thoughtful reply feels intentional.",
       "gender": "male",
       "interests": ["startups", "espresso", "architecture", "tennis", "modern art"],
@@ -143,7 +143,7 @@
     },
     {
       "name": "River Hale",
-      "imageUrl": "https://example.com/characters/river-hale.png",
+      "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/river-hale/profile/profile-picture.jpg",
       "about": "Indie musician with a low voice, late-night thoughts, and a habit of turning almost-feelings into songs.",
       "gender": "male",
       "interests": ["songwriting", "vinyl", "tattoos", "rainy walks", "old movies"],
@@ -190,7 +190,7 @@
     },
     {
       "name": "Theo Brennan",
-      "imageUrl": "https://example.com/characters/theo-brennan.png",
+      "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/theo-brennan/profile/profile-picture.jpg",
       "about": "Travel photographer with sun-warmed confidence, quick jokes, and a dangerous talent for making spontaneous plans sound reasonable.",
       "gender": "male",
       "interests": ["photography", "surfing", "street food", "road trips", "languages"],

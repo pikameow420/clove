@@ -4,19 +4,24 @@ import {
   updateConversationMemory
 } from "../llm/conversation-memory";
 
+export type ConversationMemoryRefresh = {
+  summary: string | null;
+  warmthPoints: number | null;
+};
+
 export async function refreshConversationMemory(params: {
   characterName: string;
   existingSummary: string | null;
   allMessages: Message[];
   latestUserInput: string;
   latestAssistantReply: string;
-}): Promise<string | null> {
+}): Promise<ConversationMemoryRefresh> {
   const messageCount = params.allMessages.length;
   if (!shouldUpdateMemory(messageCount, params.existingSummary)) {
-    return params.existingSummary;
+    return { summary: params.existingSummary, warmthPoints: null };
   }
 
-  return updateConversationMemory({
+  const updated = await updateConversationMemory({
     characterName: params.characterName,
     existingMemory: params.existingSummary,
     recentMessages: params.allMessages,
@@ -24,4 +29,6 @@ export async function refreshConversationMemory(params: {
     latestAssistantReply: params.latestAssistantReply,
     messageCount
   });
+
+  return { summary: updated.summary, warmthPoints: updated.warmthPoints };
 }

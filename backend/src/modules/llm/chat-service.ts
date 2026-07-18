@@ -8,6 +8,7 @@ type ChatArgs = {
   recentMessages: Message[];
   userInput: string;
   extraSystemInstruction?: string;
+  intimacyLevel?: number;
 };
 
 function sanitizeAssistantText(content: string): string {

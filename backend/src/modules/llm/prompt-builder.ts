@@ -1,5 +1,6 @@
 import type { Character, Message } from "../../generated/prisma/client";
 import { env } from "../../lib/env";
+import { getIntimacyToneInstruction } from "../intimacy/prompt";
 import { formatMemoryForPrompt } from "./conversation-memory";
 
 export type LlmChatMessage = {
@@ -70,8 +71,9 @@ export function buildLlmMessages(params: {
   summary: string | null;
   userInput: string;
   extraSystemInstruction?: string;
+  intimacyLevel?: number;
 }): LlmChatMessage[] {
-  const { character, recentMessages, summary, userInput, extraSystemInstruction } = params;
+  const { character, recentMessages, summary, userInput, extraSystemInstruction, intimacyLevel } = params;
 
   const systemRules = [
     "You are texting as the character in a private one-on-one chat app, not writing a story for an audience.",
@@ -121,6 +123,10 @@ export function buildLlmMessages(params: {
     { role: "system", content: characterBlock },
     { role: "system", content: memoryBlock },
     { role: "system", content: `Reply length for this turn:\n${lengthGuide}` },
+    {
+      role: "system",
+      content: getIntimacyToneInstruction(intimacyLevel ?? 1)
+    },
     ...(extraSystemInstruction ? [{ role: "system" as const, content: extraSystemInstruction }] : []),
     ...history,
     { role: "user", content: userInput }

@@ -1,5 +1,6 @@
 import type { Message } from "../../generated/prisma/client";
 import { logger } from "../../lib/logger";
+import { memoryWarmthPoints } from "../intimacy/rules";
 import { chatWithOllama } from "./ollama-client";
 
 export type ConversationMemory = {
@@ -7,6 +8,12 @@ export type ConversationMemory = {
   relationship: string;
   openThreads: string[];
   messageCount: number;
+};
+
+export type MemoryRefreshResult = {
+  summary: string;
+  /** Null when refresh did not run or warmth could not be scored. */
+  warmthPoints: number | null;
 };
 
 const EMPTY_MEMORY: ConversationMemory = {
@@ -17,6 +24,13 @@ const EMPTY_MEMORY: ConversationMemory = {
 };
 
 const MEMORY_UPDATE_INTERVAL = 4;
+
+function clampScore(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(3, Math.floor(value)));
+}
 
 export function parseMemory(raw: string | null): ConversationMemory {
   if (!raw?.trim()) {
@@ -42,7 +56,12 @@ export function parseMemory(raw: string | null): ConversationMemory {
 }
 
 export function serializeMemory(memory: ConversationMemory): string {
-  return JSON.stringify(memory);
+  return JSON.stringify({
+    characterArc: memory.characterArc,
+    relationship: memory.relationship,
+    openThreads: memory.openThreads,
+    messageCount: memory.messageCount
+  });
 }
 
 export function formatMemoryForPrompt(raw: string | null): string {
@@ -91,7 +110,7 @@ export async function updateConversationMemory(params: {
   latestUserInput: string;
   latestAssistantReply: string;
   messageCount: number;
-}): Promise<string> {
+}): Promise<MemoryRefreshResult> {
   const current = parseMemory(params.existingMemory);
 
   const memoryPrompt = [
@@ -100,10 +119,11 @@ export async function updateConversationMemory(params: {
       content: [
         "You maintain structured memory for a fictional character chat.",
         "Return ONLY valid JSON with this exact shape:",
-        '{"characterArc":"string","relationship":"string","openThreads":["string"]}',
+        '{"characterArc":"string","relationship":"string","openThreads":["string"],"warmth":0,"disclosure":0,"reciprocity":0}',
         "characterArc: 2-4 sentences on the CHARACTER's own ongoing life: goals, stress, wins, plans (not the user's life).",
         "relationship: 2-4 sentences on rapport with the user: tone, what they learned about the user, intimacy level.",
         "openThreads: up to 5 short bullets of unresolved topics to mention later (promises, questions, inside jokes).",
+        "warmth, disclosure, reciprocity: integers 0-3 scoring the latest exchange only.",
         "Merge new info with existing memory. Drop stale threads. Be concise."
       ].join("\n")
     },
@@ -126,7 +146,12 @@ export async function updateConversationMemory(params: {
       throw new Error("No JSON in memory response");
     }
 
-    const parsed = JSON.parse(jsonMatch[0]) as Partial<ConversationMemory>;
+    const parsed = JSON.parse(jsonMatch[0]) as Partial<ConversationMemory> & {
+      warmth?: unknown;
+      disclosure?: unknown;
+      reciprocity?: unknown;
+    };
+
     const updated: ConversationMemory = {
       characterArc: typeof parsed.characterArc === "string" ? parsed.characterArc.trim() : current.characterArc,
       relationship: typeof parsed.relationship === "string" ? parsed.relationship.trim() : current.relationship,
@@ -136,12 +161,21 @@ export async function updateConversationMemory(params: {
       messageCount: params.messageCount
     };
 
-    return serializeMemory(updated);
+    const warmthPoints = memoryWarmthPoints(
+      clampScore(parsed.warmth),
+      clampScore(parsed.disclosure),
+      clampScore(parsed.reciprocity)
+    );
+
+    return { summary: serializeMemory(updated), warmthPoints };
   } catch (error) {
     logger.warn({ err: error }, "Failed to update conversation memory, keeping existing");
-    return serializeMemory({
-      ...current,
-      messageCount: params.messageCount
-    });
+    return {
+      summary: serializeMemory({
+        ...current,
+        messageCount: params.messageCount
+      }),
+      warmthPoints: 0
+    };
   }
 }

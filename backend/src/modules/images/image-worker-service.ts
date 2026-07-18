@@ -11,6 +11,7 @@ import {
 } from "../../lib/openai/image-client";
 import { notifyAssistantReply } from "../../lib/push/expo-push";
 import { downloadImage, generatedStoragePath, uploadImage } from "../../lib/storage/supabase-storage";
+import { applyIntimacyEvents } from "../intimacy/scoring";
 import { demoteExcessCacheAssets } from "./image-cache";
 import { imageBriefSchema, type ImageBrief } from "./image-intent";
 
@@ -200,8 +201,8 @@ export async function processImageRequest(request: ImageGenerationRequest): Prom
   }
 
   const now = new Date();
-  await prisma.$transaction([
-    prisma.characterImageAsset.create({
+  await prisma.$transaction(async (tx) => {
+    await tx.characterImageAsset.create({
       data: {
         id: assetId,
         characterId: request.characterId,
@@ -215,30 +216,37 @@ export async function processImageRequest(request: ImageGenerationRequest): Prom
         lastUsedAt: now,
         useCount: 1,
       },
-    }),
-    ...(request.assistantMessageId
-      ? [
-          prisma.messageAttachment.create({
-            data: {
-              messageId: request.assistantMessageId,
-              type: "image",
-              storagePath,
-              mimeType: generated.mimeType,
-              assetId,
-              metadata: { description: brief.scene },
-            },
-          }),
-          prisma.message.update({
-            where: { id: request.assistantMessageId },
-            data: { mediaStatus: "ready" },
-          }),
-        ]
-      : []),
-    prisma.imageGenerationRequest.update({
+    });
+
+    if (request.assistantMessageId) {
+      await tx.messageAttachment.create({
+        data: {
+          messageId: request.assistantMessageId,
+          type: "image",
+          storagePath,
+          mimeType: generated.mimeType,
+          assetId,
+          metadata: { description: brief.scene },
+        },
+      });
+      await tx.message.update({
+        where: { id: request.assistantMessageId },
+        data: { mediaStatus: "ready" },
+      });
+    }
+
+    await tx.imageGenerationRequest.update({
       where: { id: request.id },
       data: { status: "ready", assetId, leasedUntil: null, errorCode: null },
-    }),
-  ]);
+    });
+
+    await applyIntimacyEvents({
+      conversationId: request.conversationId,
+      events: [{ eventType: "photo_moment_generated", sourceId: request.id }],
+      now,
+      tx,
+    });
+  });
 
   await demoteExcessCacheAssets(request.characterId);
 

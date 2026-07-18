@@ -10,6 +10,8 @@ import {
   type MessageWithAttachments
 } from "../images/attachment-serializer";
 import { attachAssistantMessageToRequest, planImageReply, type ImageReplyPlan } from "../images/image-reply-service";
+import { applyIntimacyEvents, type IntimacyEventInput } from "../intimacy/scoring";
+import { serializeIntimacy, type IntimacySnapshot } from "../intimacy/serializer";
 import { persistAssistantMessage, recordUserMessage } from "./assistant-message";
 import { assertConversationOwnership, getOrCreateConversation } from "./service";
 
@@ -43,6 +45,34 @@ function imageResponseMeta(plan: ImageReplyPlan): { mediaStatus: string; imageRe
       return { mediaStatus: "ready", imageRequestId: null };
     case "generate":
       return { mediaStatus: "pending", imageRequestId: plan.imageRequestId };
+    default: {
+      const exhaustive: never = plan;
+      throw new Error(`Unhandled image plan: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
+
+function mergeIntimacy(...snapshots: IntimacySnapshot[]): IntimacySnapshot {
+  const latest = snapshots[snapshots.length - 1] ?? serializeIntimacy({});
+  return {
+    ...latest,
+    leveledUp: snapshots.some((snapshot) => snapshot.leveledUp)
+  };
+}
+
+function photoIntimacyEvents(plan: ImageReplyPlan, userMessageId: string): IntimacyEventInput[] {
+  switch (plan.type) {
+    case "cache_hit":
+      return [
+        { eventType: "photo_request_accepted", sourceId: userMessageId },
+        // assistant message id is unknown until persist; cache moment added after persist
+      ];
+    case "generate":
+      return [{ eventType: "photo_request_accepted", sourceId: userMessageId }];
+    case "none":
+    case "rejected":
+    case "quota_exceeded":
+      return [];
     default: {
       const exhaustive: never = plan;
       throw new Error(`Unhandled image plan: ${JSON.stringify(exhaustive)}`);
@@ -118,6 +148,10 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     const items = likes.map((swipe) => {
       const conversation = conversationByCharacterId.get(swipe.characterId);
       const latest = conversation ? latestByConversation.get(conversation.id) : undefined;
+      const intimacy = serializeIntimacy({
+        intimacyLevel: conversation?.intimacyLevel,
+        intimacyScore: conversation?.intimacyScore
+      });
       return {
         conversationId: conversation?.id ?? null,
         character: swipe.character,
@@ -125,7 +159,10 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
           latest?.at ?? conversation?.lastMessageAt?.toISOString() ?? null,
         lastMessagePreview: latest?.preview ?? null,
         hasImage: latest?.hasImage ?? false,
-        matchedAt: swipe.updatedAt
+        matchedAt: swipe.updatedAt,
+        intimacyLevel: intimacy.intimacyLevel,
+        intimacyScore: intimacy.intimacyScore,
+        intimacyProgress: intimacy.intimacyProgress
       };
     });
 
@@ -140,7 +177,8 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
 
     try {
       const conversation = await getOrCreateConversation(request.user.id, parsed.data.characterId);
-      return { conversation };
+      const intimacy = serializeIntimacy(conversation);
+      return { conversation, ...intimacy };
     } catch {
       return reply.forbidden("Character must be liked before chat");
     }
@@ -152,8 +190,9 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     const limit = parsePositiveInt(query.limit, 50, 200);
     const cursor = typeof query.cursor === "string" ? query.cursor : undefined;
 
+    let conversation;
     try {
-      await assertConversationOwnership(id, request.user.id);
+      conversation = await assertConversationOwnership(id, request.user.id);
     } catch {
       return reply.notFound("Conversation not found");
     }
@@ -171,7 +210,11 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     const nextCursor = hasNextPage ? page[page.length - 1]?.id : null;
     const items = await serializeMessagesWithAttachments(page);
 
-    return { items, pageInfo: { hasNextPage, nextCursor } };
+    return {
+      items,
+      pageInfo: { hasNextPage, nextCursor },
+      intimacy: serializeIntimacy(conversation)
+    };
   });
 
   app.post("/conversations/:id/messages", async (request, reply) => {
@@ -203,10 +246,14 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       include: { attachments: true }
     });
 
-    const userMessage = await recordUserMessage({
+    const previousAssistant = [...recentMessages].reverse().find((message) => message.role === "assistant");
+
+    const userTurn = await recordUserMessage({
       conversationId: conversation.id,
-      content: parsedBody.data.content
+      content: parsedBody.data.content,
+      previousAssistantContent: previousAssistant?.content
     });
+    const userMessage = userTurn.message;
 
     const imagePlan = await planImageReply({
       character,
@@ -221,9 +268,12 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     const extraSystemInstruction =
       imagePlan.type === "none" || !imagePlan.instruction ? undefined : imagePlan.instruction;
     const llmHistory = withPhotoMarkers(recentMessages);
+    const intimacyLevelForPrompt = userTurn.intimacy.intimacyLevel;
 
     const finalizeAssistantMessage = async (content: string, tokenCount: number | null) => {
-      const assistantMessage = await persistAssistantMessage({
+      const intimacyEvents = photoIntimacyEvents(imagePlan, userMessage.id);
+
+      const persisted = await persistAssistantMessage({
         conversationId: conversation.id,
         userId: request.user.id,
         characterId: character.id,
@@ -245,19 +295,31 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         recentMessages: [...recentMessages, userMessage],
         existingSummary: conversation.summary,
         latestUserInput: parsedBody.data.content,
-        latestAssistantReply: content
+        latestAssistantReply: content,
+        intimacyEvents
       });
 
+      let intimacy = persisted.intimacy;
+      if (imagePlan.type === "cache_hit") {
+        intimacy = await applyIntimacyEvents({
+          conversationId: conversation.id,
+          events: [{ eventType: "photo_moment_cache", sourceId: persisted.message.id }]
+        });
+      }
+
       if (imagePlan.type === "generate") {
-        await attachAssistantMessageToRequest(imagePlan.imageRequestId, assistantMessage.id);
+        await attachAssistantMessageToRequest(imagePlan.imageRequestId, persisted.message.id);
       }
 
       const withAttachments = await prisma.message.findUniqueOrThrow({
-        where: { id: assistantMessage.id },
+        where: { id: persisted.message.id },
         include: { attachments: true }
       });
       const [serialized] = await serializeMessagesWithAttachments([withAttachments]);
-      return serialized!;
+      return {
+        assistantMessage: serialized!,
+        intimacy: mergeIntimacy(userTurn.intimacy, persisted.intimacy, intimacy)
+      };
     };
 
     if (!stream) {
@@ -267,11 +329,12 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         summary: conversation.summary,
         recentMessages: llmHistory,
         userInput: parsedBody.data.content,
-        extraSystemInstruction
+        extraSystemInstruction,
+        intimacyLevel: intimacyLevelForPrompt
       });
       const latencyMs = Date.now() - startedAt;
 
-      const assistantMessage = await finalizeAssistantMessage(assistant.content, assistant.tokenCount);
+      const finalized = await finalizeAssistantMessage(assistant.content, assistant.tokenCount);
 
       logger.info(
         {
@@ -279,15 +342,17 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
           conversationId: conversation.id,
           latencyMs,
           tokenCount: assistant.tokenCount,
-          imagePlan: imagePlan.type
+          imagePlan: imagePlan.type,
+          intimacyLevel: finalized.intimacy.intimacyLevel
         },
         "Generated assistant response"
       );
 
       return {
         userMessage,
-        assistantMessage,
-        ...imageResponseMeta(imagePlan)
+        assistantMessage: finalized.assistantMessage,
+        ...imageResponseMeta(imagePlan),
+        ...finalized.intimacy
       };
     }
 
@@ -306,7 +371,8 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
           summary: conversation.summary,
           recentMessages: llmHistory,
           userInput: parsedBody.data.content,
-          extraSystemInstruction
+          extraSystemInstruction,
+          intimacyLevel: intimacyLevelForPrompt
         },
         (token) => {
           fullContent += token;
@@ -315,7 +381,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       );
 
       const storedContent = fullContent || assistant.content;
-      const assistantMessage = await finalizeAssistantMessage(storedContent, assistant.tokenCount);
+      const finalized = await finalizeAssistantMessage(storedContent, assistant.tokenCount);
 
       const latencyMs = Date.now() - startedAt;
       logger.info(
@@ -324,7 +390,8 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
           conversationId: conversation.id,
           latencyMs,
           tokenCount: assistant.tokenCount,
-          imagePlan: imagePlan.type
+          imagePlan: imagePlan.type,
+          intimacyLevel: finalized.intimacy.intimacyLevel
         },
         "Streamed assistant response"
       );
@@ -332,8 +399,9 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       reply.raw.write(
         `event: done\ndata: ${JSON.stringify({
           tokenCount: assistant.tokenCount,
-          assistantMessage,
-          ...imageResponseMeta(imagePlan)
+          assistantMessage: finalized.assistantMessage,
+          ...imageResponseMeta(imagePlan),
+          ...finalized.intimacy
         })}\n\n`
       );
       reply.raw.end();

@@ -109,6 +109,8 @@ export async function findBestProactiveCandidateForUser(userId: string, now = ne
             lastProactiveMessageAt: null,
             consecutiveProactiveCount: 0,
             proactiveBackoffUntil: null,
+            intimacyLevel: 1,
+            intimacyScore: 0,
             createdAt: swipe.updatedAt,
             updatedAt: swipe.updatedAt
           },
@@ -223,6 +225,7 @@ async function generateProactiveReply(params: {
   summary: string | null;
   trigger: ProactiveTrigger;
   idleHours?: number;
+  intimacyLevel?: number;
 }): Promise<{ content: string; tokenCount: number | null }> {
   const llmMessages = buildProactiveLlmMessages(params);
   const reply = await chatWithOllama(llmMessages);
@@ -247,15 +250,21 @@ export async function sendProactiveMessage(candidate: ProactiveCandidate): Promi
           take: env.MAX_CONTEXT_MESSAGES
         });
 
+  const intimacyLevel =
+    "intimacyLevel" in conversation && typeof conversation.intimacyLevel === "number"
+      ? conversation.intimacyLevel
+      : 1;
+
   const reply = await generateProactiveReply({
     character: candidate.character,
     recentMessages,
     summary: conversation.summary,
     trigger: candidate.trigger,
-    idleHours: candidate.idleHours
+    idleHours: candidate.idleHours,
+    intimacyLevel
   });
 
-  return persistAssistantMessage({
+  const persisted = await persistAssistantMessage({
     conversationId: conversation.id,
     userId: candidate.userId,
     characterId: candidate.characterId,
@@ -268,6 +277,8 @@ export async function sendProactiveMessage(candidate: ProactiveCandidate): Promi
     existingSummary: conversation.summary,
     latestAssistantReply: reply.content
   });
+
+  return persisted.message;
 }
 
 export type ProactiveDryRunResult = {

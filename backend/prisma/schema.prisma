@@ -63,6 +63,19 @@ enum ImageRequestStatus {
   failed
 }
 
+enum IntimacyEventType {
+  user_message
+  user_message_meaningful
+  answered_question
+  shared_day
+  proactive_sent
+  proactive_reply
+  photo_moment_cache
+  photo_moment_generated
+  photo_request_accepted
+  memory_warmth
+}
+
 model User {
   id                String                   @id @default(cuid())
   externalId        String                   @unique
@@ -110,24 +123,40 @@ model Swipe {
 }
 
 model Conversation {
-  id                        String      @id @default(cuid())
+  id                        String          @id @default(cuid())
   userId                    String
   characterId               String
   summary                   String?
   lastMessageAt             DateTime?
   lastUserMessageAt         DateTime?
   lastProactiveMessageAt    DateTime?
-  consecutiveProactiveCount Int         @default(0)
+  consecutiveProactiveCount Int             @default(0)
   proactiveBackoffUntil     DateTime?
-  createdAt                 DateTime    @default(now())
-  updatedAt                 DateTime    @updatedAt
-  user                      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  character                 Character   @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  intimacyLevel             Int             @default(1)
+  intimacyScore             Int             @default(0)
+  createdAt                 DateTime        @default(now())
+  updatedAt                 DateTime        @updatedAt
+  user                      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character                 Character       @relation(fields: [characterId], references: [id], onDelete: Cascade)
   messages                  Message[]
+  intimacyEvents            IntimacyEvent[]
 
   @@unique([userId, characterId])
   @@index([userId, lastMessageAt])
   @@index([userId, lastUserMessageAt])
+}
+
+model IntimacyEvent {
+  id             String            @id @default(cuid())
+  conversationId String
+  eventType      IntimacyEventType
+  sourceId       String
+  points         Int
+  createdAt      DateTime          @default(now())
+  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, eventType, sourceId])
+  @@index([conversationId, createdAt])
 }
 
 model Message {

@@ -33,13 +33,15 @@ export function buildProactiveLlmMessages(params: {
   summary: string | null;
   trigger: ProactiveTrigger;
   idleHours?: number;
+  intimacyLevel?: number;
 }): LlmChatMessage[] {
   const syntheticInput = buildProactiveInstruction(params.trigger, params.idleHours);
   const messages = buildLlmMessages({
     character: params.character,
     recentMessages: params.recentMessages,
     summary: params.summary,
-    userInput: syntheticInput
+    userInput: syntheticInput,
+    intimacyLevel: params.intimacyLevel
   });
 
   return messages.map((message) => {

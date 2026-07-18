@@ -8,15 +8,30 @@ type AuthUser = {
   externalId: string;
 };
 
-async function resolveOrCreateUser(externalId: string): Promise<string> {
-  const user = await prisma.user.upsert({
+type ResolvedUser = {
+  id: string;
+  adultConfirmedAt: Date | null;
+};
+
+async function resolveOrCreateUser(externalId: string): Promise<ResolvedUser> {
+  return prisma.user.upsert({
     where: { externalId },
     update: {},
     create: { externalId },
-    select: { id: true },
+    select: { id: true, adultConfirmedAt: true },
   });
+}
 
-  return user.id;
+function isPublicRoute(url: string): boolean {
+  return (
+    url.startsWith("/health") ||
+    url.startsWith("/characters/admin/import") ||
+    url.startsWith("/admin/")
+  );
+}
+
+function isAdultConfirmationExempt(url: string): boolean {
+  return url.startsWith("/users/adult-confirmation");
 }
 
 export const authPlugin = fp(async (app) => {
@@ -33,7 +48,7 @@ export const authPlugin = fp(async (app) => {
   });
 
   app.addHook("preHandler", async (request: FastifyRequest, reply: FastifyReply) => {
-    if (request.url.startsWith("/health") || request.url.startsWith("/characters/admin/import")) {
+    if (isPublicRoute(request.url)) {
       return;
     }
 
@@ -49,7 +64,15 @@ export const authPlugin = fp(async (app) => {
       return reply.unauthorized("Invalid or expired access token");
     }
 
-    const userId = await resolveOrCreateUser(externalId);
-    request.user = { id: userId, externalId };
+    const user = await resolveOrCreateUser(externalId);
+    request.user = { id: user.id, externalId };
+
+    if (!user.adultConfirmedAt && !isAdultConfirmationExempt(request.url)) {
+      return reply.code(403).send({
+        error: "ADULT_CONFIRMATION_REQUIRED",
+        message:
+          'Confirm you are at least 18 years old via POST /users/adult-confirmation with { "dateOfBirth": "YYYY-MM-DD" }',
+      });
+    }
   });
 });

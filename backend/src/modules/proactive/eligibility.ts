@@ -1,0 +1,297 @@
+import type { Character, Conversation, Message, ProactiveTrigger } from "../../generated/prisma/client";
+import { prisma } from "../../lib/db/prisma";
+import { env } from "../../lib/env";
+import { buildProactiveLlmMessages } from "./prompt-builder";
+import { chatWithOllama } from "../llm/ollama-client";
+import { persistAssistantMessage } from "../conversations/assistant-message";
+
+export type ProactiveCandidate = {
+  userId: string;
+  characterId: string;
+  conversationId: string;
+  trigger: ProactiveTrigger;
+  score: number;
+  idleHours?: number;
+  character: Character;
+  conversation: Conversation;
+  recentMessages: Message[];
+};
+
+export async function countProactiveMessagesLast24h(userId: string): Promise<number> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return prisma.message.count({
+    where: {
+      source: "assistant_proactive",
+      createdAt: { gte: since },
+      conversation: { userId }
+    }
+  });
+}
+
+export async function hasPostMatchProactive(conversationId: string): Promise<boolean> {
+  const existing = await prisma.message.findFirst({
+    where: {
+      conversationId,
+      source: "assistant_proactive",
+      proactiveTrigger: "post_match"
+    },
+    select: { id: true }
+  });
+  return existing !== null;
+}
+
+export async function countUserMessages(conversationId: string): Promise<number> {
+  return prisma.message.count({
+    where: { conversationId, role: "user" }
+  });
+}
+
+function isInBackoff(conversation: Conversation, now: Date): boolean {
+  return conversation.proactiveBackoffUntil !== null && conversation.proactiveBackoffUntil > now;
+}
+
+export async function findBestProactiveCandidateForUser(userId: string, now = new Date()): Promise<ProactiveCandidate | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { proactiveEnabled: true }
+  });
+  if (!user?.proactiveEnabled) {
+    return null;
+  }
+
+  const proactiveCount = await countProactiveMessagesLast24h(userId);
+  if (proactiveCount >= env.PROACTIVE_DAILY_CAP) {
+    return null;
+  }
+
+  const likes = await prisma.swipe.findMany({
+    where: { userId, decision: "liked" },
+    include: {
+      character: true
+    }
+  });
+
+  let best: ProactiveCandidate | null = null;
+
+  for (const swipe of likes) {
+    if (!swipe.character.isActive) {
+      continue;
+    }
+
+    let conversation = await prisma.conversation.findUnique({
+      where: {
+        userId_characterId: {
+          userId,
+          characterId: swipe.characterId
+        }
+      }
+    });
+
+    const userMessageCount = conversation ? await countUserMessages(conversation.id) : 0;
+    const matchedAgoMs = now.getTime() - swipe.updatedAt.getTime();
+
+    if (!conversation) {
+      if (matchedAgoMs >= env.PROACTIVE_MATCH_DELAY_MS) {
+        const candidate: ProactiveCandidate = {
+          userId,
+          characterId: swipe.characterId,
+          conversationId: "",
+          trigger: "post_match",
+          score: 100,
+          character: swipe.character,
+          conversation: {
+            id: "",
+            userId,
+            characterId: swipe.characterId,
+            summary: null,
+            lastMessageAt: null,
+            lastUserMessageAt: null,
+            lastProactiveMessageAt: null,
+            consecutiveProactiveCount: 0,
+            proactiveBackoffUntil: null,
+            createdAt: swipe.updatedAt,
+            updatedAt: swipe.updatedAt
+          },
+          recentMessages: []
+        };
+        if (!best || candidate.score > best.score) {
+          best = candidate;
+        }
+      }
+      continue;
+    }
+
+    if (isInBackoff(conversation, now)) {
+      continue;
+    }
+
+    if (conversation.consecutiveProactiveCount >= 2) {
+      continue;
+    }
+
+    if (userMessageCount === 0) {
+      if (matchedAgoMs >= env.PROACTIVE_MATCH_DELAY_MS) {
+        const alreadySent = await hasPostMatchProactive(conversation.id);
+        if (!alreadySent) {
+          const candidate: ProactiveCandidate = {
+            userId,
+            characterId: swipe.characterId,
+            conversationId: conversation.id,
+            trigger: "post_match",
+            score: 100,
+            character: swipe.character,
+            conversation,
+            recentMessages: await prisma.message.findMany({
+              where: { conversationId: conversation.id },
+              orderBy: { createdAt: "asc" },
+              take: env.MAX_CONTEXT_MESSAGES
+            })
+          };
+          if (!best || candidate.score > best.score) {
+            best = candidate;
+          }
+        }
+      }
+      continue;
+    }
+
+    const lastUserAt =
+      conversation.lastUserMessageAt ??
+      (
+        await prisma.message.findFirst({
+          where: { conversationId: conversation.id, role: "user" },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true }
+        })
+      )?.createdAt;
+
+    if (!lastUserAt) {
+      continue;
+    }
+
+    const idleMs = now.getTime() - lastUserAt.getTime();
+    if (idleMs >= env.PROACTIVE_IDLE_MS) {
+      const idleHours = idleMs / 3_600_000;
+      const candidate: ProactiveCandidate = {
+        userId,
+        characterId: swipe.characterId,
+        conversationId: conversation.id,
+        trigger: "idle",
+        score: idleHours * 5,
+        idleHours,
+        character: swipe.character,
+        conversation,
+        recentMessages: await prisma.message.findMany({
+          where: { conversationId: conversation.id },
+          orderBy: { createdAt: "asc" },
+          take: env.MAX_CONTEXT_MESSAGES
+        })
+      };
+      if (!best || candidate.score > best.score) {
+        best = candidate;
+      }
+    }
+  }
+
+  return best;
+}
+
+export async function findProactiveCandidatesForTick(now = new Date()): Promise<ProactiveCandidate[]> {
+  const users = await prisma.user.findMany({
+    where: {
+      proactiveEnabled: true,
+      swipes: { some: { decision: "liked" } }
+    },
+    select: { id: true }
+  });
+
+  const candidates: ProactiveCandidate[] = [];
+  for (const user of users) {
+    const candidate = await findBestProactiveCandidateForUser(user.id, now);
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.slice(0, env.PROACTIVE_MAX_PER_TICK);
+}
+
+async function generateProactiveReply(params: {
+  character: Character;
+  recentMessages: Message[];
+  summary: string | null;
+  trigger: ProactiveTrigger;
+  idleHours?: number;
+}): Promise<{ content: string; tokenCount: number | null }> {
+  const llmMessages = buildProactiveLlmMessages(params);
+  const reply = await chatWithOllama(llmMessages);
+  const content = reply.content.replace(/[\u2014\u2013]/g, ",");
+  return { content, tokenCount: reply.tokenCount };
+}
+
+export async function sendProactiveMessage(candidate: ProactiveCandidate): Promise<Message> {
+  const { getOrCreateConversation } = await import("../conversations/service");
+
+  const conversation =
+    candidate.conversationId.length > 0
+      ? candidate.conversation
+      : await getOrCreateConversation(candidate.userId, candidate.characterId);
+
+  const recentMessages =
+    candidate.recentMessages.length > 0
+      ? candidate.recentMessages
+      : await prisma.message.findMany({
+          where: { conversationId: conversation.id },
+          orderBy: { createdAt: "asc" },
+          take: env.MAX_CONTEXT_MESSAGES
+        });
+
+  const reply = await generateProactiveReply({
+    character: candidate.character,
+    recentMessages,
+    summary: conversation.summary,
+    trigger: candidate.trigger,
+    idleHours: candidate.idleHours
+  });
+
+  return persistAssistantMessage({
+    conversationId: conversation.id,
+    userId: candidate.userId,
+    characterId: candidate.characterId,
+    characterName: candidate.character.name,
+    content: reply.content,
+    tokenCount: reply.tokenCount,
+    source: "assistant_proactive",
+    proactiveTrigger: candidate.trigger,
+    recentMessages,
+    existingSummary: conversation.summary,
+    latestAssistantReply: reply.content
+  });
+}
+
+export type ProactiveDryRunResult = {
+  userId: string;
+  characterId: string;
+  characterName: string;
+  conversationId: string | null;
+  trigger: ProactiveTrigger;
+  score: number;
+  reason: string;
+};
+
+export async function dryRunProactiveTick(now = new Date()): Promise<ProactiveDryRunResult[]> {
+  const candidates = await findProactiveCandidatesForTick(now);
+  return candidates.map((candidate) => ({
+    userId: candidate.userId,
+    characterId: candidate.characterId,
+    characterName: candidate.character.name,
+    conversationId: candidate.conversationId || null,
+    trigger: candidate.trigger,
+    score: candidate.score,
+    reason:
+      candidate.trigger === "post_match"
+        ? "Post-match welcome: no user messages after match delay"
+        : `Idle check-in: ~${Math.round(candidate.idleHours ?? 0)}h since last user message`
+  }));
+}

@@ -9,6 +9,8 @@ import { authPlugin } from "./modules/auth/auth";
 import { characterRoutes } from "./modules/characters/routes";
 import { swipeRoutes } from "./modules/swipes/routes";
 import { conversationRoutes } from "./modules/conversations/routes";
+import { proactiveAdminRoutes } from "./modules/proactive/routes";
+import { imageAdminRoutes } from "./modules/images/routes";
 import { userRoutes } from "./modules/users/routes";
 
 export function buildApp() {
@@ -21,7 +23,15 @@ export function buildApp() {
   });
   app.register(sensible);
   app.register(rateLimit, {
-    max: env.RATE_LIMIT_MAX,
+    max: (request) => {
+      if (request.method === "GET") {
+        return env.RATE_LIMIT_READ_MAX;
+      }
+      if (request.method === "POST" && /\/conversations\/[^/]+\/messages/.test(request.url)) {
+        return env.RATE_LIMIT_CHAT_MAX;
+      }
+      return env.RATE_LIMIT_MAX;
+    },
     timeWindow: env.RATE_LIMIT_WINDOW,
     keyGenerator: (request) => {
       const auth = request.headers.authorization;
@@ -38,6 +48,8 @@ export function buildApp() {
   app.register(characterRoutes);
   app.register(swipeRoutes);
   app.register(conversationRoutes);
+  app.register(proactiveAdminRoutes);
+  app.register(imageAdminRoutes);
   app.register(userRoutes);
 
   return app;

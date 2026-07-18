@@ -69,8 +69,9 @@ export function buildLlmMessages(params: {
   recentMessages: Message[];
   summary: string | null;
   userInput: string;
+  extraSystemInstruction?: string;
 }): LlmChatMessage[] {
-  const { character, recentMessages, summary, userInput } = params;
+  const { character, recentMessages, summary, userInput, extraSystemInstruction } = params;
 
   const systemRules = [
     "You are texting as the character in a private one-on-one chat app, not writing a story for an audience.",
@@ -120,6 +121,7 @@ export function buildLlmMessages(params: {
     { role: "system", content: characterBlock },
     { role: "system", content: memoryBlock },
     { role: "system", content: `Reply length for this turn:\n${lengthGuide}` },
+    ...(extraSystemInstruction ? [{ role: "system" as const, content: extraSystemInstruction }] : []),
     ...history,
     { role: "user", content: userInput }
   ];

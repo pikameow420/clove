@@ -7,6 +7,7 @@ type ChatArgs = {
   summary: string | null;
   recentMessages: Message[];
   userInput: string;
+  extraSystemInstruction?: string;
 };
 
 function sanitizeAssistantText(content: string): string {

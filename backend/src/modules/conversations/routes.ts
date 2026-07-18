@@ -5,9 +5,50 @@ import { env } from "../../lib/env";
 import { parsePositiveInt } from "../../lib/pagination";
 import { logger } from "../../lib/logger";
 import { generateCharacterReply, generateCharacterReplyStream } from "../llm/chat-service";
-import { notifyAssistantReply } from "../../lib/push/expo-push";
-import { refreshConversationMemory } from "./memory";
+import {
+  serializeMessagesWithAttachments,
+  type MessageWithAttachments
+} from "../images/attachment-serializer";
+import { attachAssistantMessageToRequest, planImageReply, type ImageReplyPlan } from "../images/image-reply-service";
+import { persistAssistantMessage, recordUserMessage } from "./assistant-message";
 import { assertConversationOwnership, getOrCreateConversation } from "./service";
+
+/**
+ * Annotates message content with photo markers so the LLM can refer to
+ * previously sent pictures without seeing signed URLs or internal prompts.
+ */
+function withPhotoMarkers(messages: MessageWithAttachments[]): MessageWithAttachments[] {
+  return messages.map((message) => {
+    if (message.attachments.length === 0 || message.mediaStatus !== "ready") {
+      return message;
+    }
+    const descriptions = message.attachments
+      .map((attachment) => {
+        const metadata = attachment.metadata as Record<string, unknown> | null;
+        const description = metadata && typeof metadata.description === "string" ? metadata.description : null;
+        return description ? `[you sent a photo: ${description}]` : "[you sent a photo]";
+      })
+      .join(" ");
+    return { ...message, content: `${message.content}\n${descriptions}` };
+  });
+}
+
+function imageResponseMeta(plan: ImageReplyPlan): { mediaStatus: string; imageRequestId: string | null } {
+  switch (plan.type) {
+    case "none":
+    case "rejected":
+    case "quota_exceeded":
+      return { mediaStatus: "none", imageRequestId: null };
+    case "cache_hit":
+      return { mediaStatus: "ready", imageRequestId: null };
+    case "generate":
+      return { mediaStatus: "pending", imageRequestId: plan.imageRequestId };
+    default: {
+      const exhaustive: never = plan;
+      throw new Error(`Unhandled image plan: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
 
 const conversationByCharacterBody = z.object({
   characterId: z.string().min(1)
@@ -54,16 +95,24 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
             select: {
               conversationId: true,
               content: true,
-              createdAt: true
+              createdAt: true,
+              mediaStatus: true
             }
           })
         : [];
 
     const latestByConversation = new Map(
-      latestMessages.map((message) => [
-        message.conversationId,
-        { preview: message.content, at: message.createdAt.toISOString() }
-      ])
+      latestMessages.map((message) => {
+        const hasImage = message.mediaStatus === "ready" || message.mediaStatus === "pending";
+        return [
+          message.conversationId,
+          {
+            preview: hasImage ? "Photo" : message.content,
+            at: message.createdAt.toISOString(),
+            hasImage
+          }
+        ];
+      })
     );
 
     const items = likes.map((swipe) => {
@@ -75,6 +124,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         lastMessageAt:
           latest?.at ?? conversation?.lastMessageAt?.toISOString() ?? null,
         lastMessagePreview: latest?.preview ?? null,
+        hasImage: latest?.hasImage ?? false,
         matchedAt: swipe.updatedAt
       };
     });
@@ -112,12 +162,14 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       where: { conversationId: id },
       orderBy: { createdAt: "asc" },
       take: limit + 1,
+      include: { attachments: true },
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {})
     });
 
     const hasNextPage = messages.length > limit;
-    const items = hasNextPage ? messages.slice(0, limit) : messages;
-    const nextCursor = hasNextPage ? items[items.length - 1]?.id : null;
+    const page = hasNextPage ? messages.slice(0, limit) : messages;
+    const nextCursor = hasNextPage ? page[page.length - 1]?.id : null;
+    const items = await serializeMessagesWithAttachments(page);
 
     return { items, pageInfo: { hasNextPage, nextCursor } };
   });
@@ -147,73 +199,95 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     const recentMessages = await prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: "asc" },
-      take: env.MAX_CONTEXT_MESSAGES
+      take: env.MAX_CONTEXT_MESSAGES,
+      include: { attachments: true }
     });
 
-    const userMessage = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        role: "user",
-        content: parsedBody.data.content
-      }
+    const userMessage = await recordUserMessage({
+      conversationId: conversation.id,
+      content: parsedBody.data.content
     });
+
+    const imagePlan = await planImageReply({
+      character,
+      userId: request.user.id,
+      conversationId: conversation.id,
+      userMessageId: userMessage.id,
+      userInput: parsedBody.data.content,
+      recentMessages,
+      summary: conversation.summary
+    });
+
+    const extraSystemInstruction =
+      imagePlan.type === "none" || !imagePlan.instruction ? undefined : imagePlan.instruction;
+    const llmHistory = withPhotoMarkers(recentMessages);
+
+    const finalizeAssistantMessage = async (content: string, tokenCount: number | null) => {
+      const assistantMessage = await persistAssistantMessage({
+        conversationId: conversation.id,
+        userId: request.user.id,
+        characterId: character.id,
+        characterName: character.name,
+        content,
+        tokenCount,
+        source: "assistant_reply",
+        mediaStatus:
+          imagePlan.type === "cache_hit" ? "ready" : imagePlan.type === "generate" ? "pending" : "none",
+        attachment:
+          imagePlan.type === "cache_hit"
+            ? {
+                storagePath: imagePlan.asset.storagePath,
+                mimeType: imagePlan.asset.mimeType,
+                assetId: imagePlan.asset.id,
+                metadata: { description: imagePlan.asset.description ?? imagePlan.brief.scene }
+              }
+            : undefined,
+        recentMessages: [...recentMessages, userMessage],
+        existingSummary: conversation.summary,
+        latestUserInput: parsedBody.data.content,
+        latestAssistantReply: content
+      });
+
+      if (imagePlan.type === "generate") {
+        await attachAssistantMessageToRequest(imagePlan.imageRequestId, assistantMessage.id);
+      }
+
+      const withAttachments = await prisma.message.findUniqueOrThrow({
+        where: { id: assistantMessage.id },
+        include: { attachments: true }
+      });
+      const [serialized] = await serializeMessagesWithAttachments([withAttachments]);
+      return serialized!;
+    };
 
     if (!stream) {
       const startedAt = Date.now();
       const assistant = await generateCharacterReply({
         character,
         summary: conversation.summary,
-        recentMessages,
-        userInput: parsedBody.data.content
+        recentMessages: llmHistory,
+        userInput: parsedBody.data.content,
+        extraSystemInstruction
       });
       const latencyMs = Date.now() - startedAt;
 
-      const assistantMessage = await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: "assistant",
-          content: assistant.content,
-          tokenCount: assistant.tokenCount ?? undefined
-        }
-      });
-
-      const nextSummary = await refreshConversationMemory({
-        characterName: character.name,
-        existingSummary: conversation.summary,
-        allMessages: [...recentMessages, assistantMessage],
-        latestUserInput: parsedBody.data.content,
-        latestAssistantReply: assistant.content
-      });
-
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          lastMessageAt: assistantMessage.createdAt,
-          summary: nextSummary
-        }
-      });
+      const assistantMessage = await finalizeAssistantMessage(assistant.content, assistant.tokenCount);
 
       logger.info(
         {
           userId: request.user.id,
           conversationId: conversation.id,
           latencyMs,
-          tokenCount: assistant.tokenCount
+          tokenCount: assistant.tokenCount,
+          imagePlan: imagePlan.type
         },
         "Generated assistant response"
       );
 
-      void notifyAssistantReply({
-        userId: request.user.id,
-        characterId: character.id,
-        characterName: character.name,
-        conversationId: conversation.id,
-        replyContent: assistant.content,
-      });
-
       return {
         userMessage,
-        assistantMessage
+        assistantMessage,
+        ...imageResponseMeta(imagePlan)
       };
     }
 
@@ -230,8 +304,9 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         {
           character,
           summary: conversation.summary,
-          recentMessages,
-          userInput: parsedBody.data.content
+          recentMessages: llmHistory,
+          userInput: parsedBody.data.content,
+          extraSystemInstruction
         },
         (token) => {
           fullContent += token;
@@ -240,30 +315,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       );
 
       const storedContent = fullContent || assistant.content;
-      const assistantMessage = await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: "assistant",
-          content: storedContent,
-          tokenCount: assistant.tokenCount ?? undefined
-        }
-      });
-
-      const nextSummary = await refreshConversationMemory({
-        characterName: character.name,
-        existingSummary: conversation.summary,
-        allMessages: [...recentMessages, assistantMessage],
-        latestUserInput: parsedBody.data.content,
-        latestAssistantReply: storedContent
-      });
-
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          lastMessageAt: assistantMessage.createdAt,
-          summary: nextSummary
-        }
-      });
+      const assistantMessage = await finalizeAssistantMessage(storedContent, assistant.tokenCount);
 
       const latencyMs = Date.now() - startedAt;
       logger.info(
@@ -271,23 +323,17 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
           userId: request.user.id,
           conversationId: conversation.id,
           latencyMs,
-          tokenCount: assistant.tokenCount
+          tokenCount: assistant.tokenCount,
+          imagePlan: imagePlan.type
         },
         "Streamed assistant response"
       );
 
-      void notifyAssistantReply({
-        userId: request.user.id,
-        characterId: character.id,
-        characterName: character.name,
-        conversationId: conversation.id,
-        replyContent: storedContent,
-      });
-
       reply.raw.write(
         `event: done\ndata: ${JSON.stringify({
           tokenCount: assistant.tokenCount,
-          assistantMessage
+          assistantMessage,
+          ...imageResponseMeta(imagePlan)
         })}\n\n`
       );
       reply.raw.end();

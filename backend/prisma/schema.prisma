@@ -23,30 +23,76 @@ enum MessageRole {
   system
 }
 
+enum MessageSource {
+  assistant_reply
+  assistant_proactive
+}
+
+enum ProactiveTrigger {
+  post_match
+  idle
+}
+
+enum MediaStatus {
+  none
+  pending
+  ready
+  rejected
+  failed
+}
+
+enum AttachmentType {
+  image
+}
+
+enum ImageAssetKind {
+  reference
+  generated
+}
+
+enum ImageAssetModeration {
+  approved
+  blocked
+}
+
+enum ImageRequestStatus {
+  queued
+  processing
+  ready
+  rejected
+  failed
+}
+
 model User {
-  id             String         @id @default(cuid())
-  externalId     String         @unique
-  expoPushToken  String?
-  createdAt      DateTime       @default(now())
-  swipes         Swipe[]
-  conversations  Conversation[]
+  id                String                   @id @default(cuid())
+  externalId        String                   @unique
+  expoPushToken     String?
+  proactiveEnabled  Boolean                  @default(true)
+  dateOfBirth       DateTime?
+  adultConfirmedAt  DateTime?
+  createdAt         DateTime                 @default(now())
+  swipes            Swipe[]
+  conversations     Conversation[]
+  imageRequests     ImageGenerationRequest[]
 }
 
 model Character {
-  id                  String         @id @default(cuid())
-  name                String         @unique
+  id                  String                   @id @default(cuid())
+  name                String                   @unique
   imageUrl            String
   about               String
   gender              String?
-  interests           Json           @default("[]")
-  profile             Json           @default("{}")
+  interests           Json                     @default("[]")
+  profile             Json                     @default("{}")
   personaSystemPrompt String
-  personaFacts        Json           @default("[]")
-  isActive            Boolean        @default(true)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  personaFacts        Json                     @default("[]")
+  isActive            Boolean                  @default(true)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
   swipes              Swipe[]
   conversations       Conversation[]
+  imageAssets         CharacterImageAsset[]
+  imageRequests       ImageGenerationRequest[]
 }
 
 model Swipe {
@@ -64,29 +110,108 @@ model Swipe {
 }
 
 model Conversation {
-  id              String      @id @default(cuid())
-  userId          String
-  characterId     String
-  summary         String?
-  lastMessageAt   DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  character       Character   @relation(fields: [characterId], references: [id], onDelete: Cascade)
-  messages        Message[]
+  id                        String      @id @default(cuid())
+  userId                    String
+  characterId               String
+  summary                   String?
+  lastMessageAt             DateTime?
+  lastUserMessageAt         DateTime?
+  lastProactiveMessageAt    DateTime?
+  consecutiveProactiveCount Int         @default(0)
+  proactiveBackoffUntil     DateTime?
+  createdAt                 DateTime    @default(now())
+  updatedAt                 DateTime    @updatedAt
+  user                      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character                 Character   @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  messages                  Message[]
 
   @@unique([userId, characterId])
   @@index([userId, lastMessageAt])
+  @@index([userId, lastUserMessageAt])
 }
 
 model Message {
-  id             String      @id @default(cuid())
-  conversationId String
-  role           MessageRole
-  content        String
-  tokenCount     Int?
-  createdAt      DateTime    @default(now())
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  id               String              @id @default(cuid())
+  conversationId   String
+  role             MessageRole
+  content          String
+  tokenCount       Int?
+  source           MessageSource?
+  proactiveTrigger ProactiveTrigger?
+  mediaStatus      MediaStatus         @default(none)
+  createdAt        DateTime            @default(now())
+  conversation     Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments      MessageAttachment[]
 
+  @@index([conversationId, createdAt])
+  @@index([conversationId, source, createdAt])
+}
+
+model MessageAttachment {
+  id          String               @id @default(cuid())
+  messageId   String
+  type        AttachmentType       @default(image)
+  storagePath String
+  mimeType    String
+  width       Int?
+  height      Int?
+  assetId     String?
+  metadata    Json                 @default("{}")
+  createdAt   DateTime             @default(now())
+  message     Message              @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  asset       CharacterImageAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([assetId])
+}
+
+model CharacterImageAsset {
+  id            String                   @id @default(cuid())
+  characterId   String
+  kind          ImageAssetKind
+  storagePath   String                   @unique
+  mimeType      String                   @default("image/webp")
+  sceneKey      String?
+  tags          Json                     @default("[]")
+  description   String?
+  isActive      Boolean                  @default(true)
+  isReusable    Boolean                  @default(true)
+  moderation    ImageAssetModeration     @default(approved)
+  lastUsedAt    DateTime?
+  useCount      Int                      @default(0)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  character     Character                @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  attachments   MessageAttachment[]
+  imageRequests ImageGenerationRequest[]
+
+  @@index([characterId, kind, isActive, isReusable])
+  @@index([characterId, sceneKey])
+}
+
+model ImageGenerationRequest {
+  id                   String               @id @default(cuid())
+  userId               String
+  conversationId       String
+  characterId          String
+  userMessageId        String               @unique
+  assistantMessageId   String?              @unique
+  status               ImageRequestStatus   @default(queued)
+  decisionReason       String?
+  brief                Json                 @default("{}")
+  assetId              String?
+  cacheHit             Boolean              @default(false)
+  attemptCount         Int                  @default(0)
+  leasedUntil          DateTime?
+  generationReservedAt DateTime?
+  errorCode            String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character            Character            @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  asset                CharacterImageAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([status, leasedUntil])
+  @@index([userId, generationReservedAt])
   @@index([conversationId, createdAt])
 }

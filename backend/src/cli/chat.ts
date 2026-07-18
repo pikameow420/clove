@@ -12,6 +12,9 @@ function toMessage(role: MessageRole, content: string): Message {
     role,
     content,
     tokenCount: null,
+    source: null,
+    proactiveTrigger: null,
+    mediaStatus: "none",
     createdAt: new Date()
   };
 }

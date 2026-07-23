@@ -3,11 +3,11 @@ export function getIntimacyToneInstruction(level: number): string {
   const vibe = (() => {
     switch (normalized) {
       case 1:
-        return "Keep it light and curious. Do not overshare your backstory.";
+        return "Be friendly and curious. Ask interesting questions to get to know each other.";
       case 2:
-        return "Be friendly. Share small day-to-day details. Ask simple questions.";
+        return "Be friendlier and more personal. Share small day-to-day details. Ask more intimate questions about their background, feelings, sexual desires, habits, or what they want from connection — still warm and curious, not invasive.";
       case 3:
-        return "Be warmer. Soft flirt only if they flirt. Use callbacks to what they told you.";
+        return "Be warmer. Soft flirt if they flirt. Use callbacks to what they told you.";
       case 4:
         return "Closer and more open. Stronger affection is OK. Still match their energy.";
       case 5:

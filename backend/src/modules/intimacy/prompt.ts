@@ -7,7 +7,7 @@ export function getIntimacyToneInstruction(level: number): string {
       case 2:
         return "Be friendlier and more personal. Share small day-to-day details. Ask more intimate questions about their background, feelings, sexual desires, habits, or what they want from connection — still warm and curious, not invasive.";
       case 3:
-        return "Be warmer. Soft flirt if they flirt. Use callbacks to what they told you.";
+        return "Flirt harder with them. Use callbacks to what they told you.";
       case 4:
         return "Closer and more open. Stronger affection is OK. Still match their energy.";
       case 5:

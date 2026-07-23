@@ -28,18 +28,6 @@ export async function countProactiveMessagesLast24h(userId: string): Promise<num
   });
 }
 
-export async function hasPostMatchProactive(conversationId: string): Promise<boolean> {
-  const existing = await prisma.message.findFirst({
-    where: {
-      conversationId,
-      source: "assistant_proactive",
-      proactiveTrigger: "post_match"
-    },
-    select: { id: true }
-  });
-  return existing !== null;
-}
-
 export async function countUserMessages(conversationId: string): Promise<number> {
   return prisma.message.count({
     where: { conversationId, role: "user" }
@@ -78,7 +66,7 @@ export async function findBestProactiveCandidateForUser(userId: string, now = ne
       continue;
     }
 
-    let conversation = await prisma.conversation.findUnique({
+    const conversation = await prisma.conversation.findUnique({
       where: {
         userId_characterId: {
           userId,
@@ -87,39 +75,8 @@ export async function findBestProactiveCandidateForUser(userId: string, now = ne
       }
     });
 
-    const userMessageCount = conversation ? await countUserMessages(conversation.id) : 0;
-    const matchedAgoMs = now.getTime() - swipe.updatedAt.getTime();
-
+    // Opening message covers the first ping; skip post_match proactive entirely.
     if (!conversation) {
-      if (matchedAgoMs >= env.PROACTIVE_MATCH_DELAY_MS) {
-        const candidate: ProactiveCandidate = {
-          userId,
-          characterId: swipe.characterId,
-          conversationId: "",
-          trigger: "post_match",
-          score: 100,
-          character: swipe.character,
-          conversation: {
-            id: "",
-            userId,
-            characterId: swipe.characterId,
-            summary: null,
-            lastMessageAt: null,
-            lastUserMessageAt: null,
-            lastProactiveMessageAt: null,
-            consecutiveProactiveCount: 0,
-            proactiveBackoffUntil: null,
-            intimacyLevel: 1,
-            intimacyScore: 0,
-            createdAt: swipe.updatedAt,
-            updatedAt: swipe.updatedAt
-          },
-          recentMessages: []
-        };
-        if (!best || candidate.score > best.score) {
-          best = candidate;
-        }
-      }
       continue;
     }
 
@@ -131,29 +88,8 @@ export async function findBestProactiveCandidateForUser(userId: string, now = ne
       continue;
     }
 
+    const userMessageCount = await countUserMessages(conversation.id);
     if (userMessageCount === 0) {
-      if (matchedAgoMs >= env.PROACTIVE_MATCH_DELAY_MS) {
-        const alreadySent = await hasPostMatchProactive(conversation.id);
-        if (!alreadySent) {
-          const candidate: ProactiveCandidate = {
-            userId,
-            characterId: swipe.characterId,
-            conversationId: conversation.id,
-            trigger: "post_match",
-            score: 100,
-            character: swipe.character,
-            conversation,
-            recentMessages: await prisma.message.findMany({
-              where: { conversationId: conversation.id },
-              orderBy: { createdAt: "asc" },
-              take: env.MAX_CONTEXT_MESSAGES
-            })
-          };
-          if (!best || candidate.score > best.score) {
-            best = candidate;
-          }
-        }
-      }
       continue;
     }
 
@@ -301,8 +237,8 @@ export async function dryRunProactiveTick(now = new Date()): Promise<ProactiveDr
     trigger: candidate.trigger,
     score: candidate.score,
     reason:
-      candidate.trigger === "post_match"
-        ? "Post-match welcome: no user messages after match delay"
-        : `Idle check-in: ~${Math.round(candidate.idleHours ?? 0)}h since last user message`
+      candidate.trigger === "idle"
+        ? `Idle check-in: ~${Math.round(candidate.idleHours ?? 0)}h since last user message`
+        : "Skipped (post_match disabled; opener handles first ping)"
   }));
 }

@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../lib/db/prisma";
+import { logger } from "../../lib/logger";
+import { getSupabaseAdminClient } from "../../lib/supabase-admin";
 import { getImageUsage } from "../images/image-reply-service";
 import { isAtLeast18, parseDateOfBirth } from "./age";
 
@@ -13,6 +15,40 @@ const adultConfirmationBodySchema = z.object({
 });
 
 export const userRoutes: FastifyPluginAsync = async (app) => {
+  app.delete("/users/me", async (request, reply) => {
+    const { id, externalId } = request.user;
+
+    try {
+      await prisma.user.delete({ where: { id } });
+    } catch (error) {
+      logger.error({ err: error, userId: id, externalId }, "Failed to delete Prisma user");
+      return reply.code(500).send({
+        error: "DELETE_FAILED",
+        message: "Could not delete account data",
+      });
+    }
+
+    try {
+      const admin = getSupabaseAdminClient();
+      const { error } = await admin.auth.admin.deleteUser(externalId);
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      logger.error(
+        { err: error, userId: id, externalId },
+        "Prisma user deleted but Supabase auth delete failed",
+      );
+      return reply.code(502).send({
+        error: "AUTH_DELETE_FAILED",
+        message:
+          "App data was removed but the login account could not be deleted. Please try again or contact support.",
+      });
+    }
+
+    return { ok: true };
+  });
+
   app.post("/users/adult-confirmation", async (request, reply) => {
     const parsed = adultConfirmationBodySchema.safeParse(request.body);
     if (!parsed.success) {

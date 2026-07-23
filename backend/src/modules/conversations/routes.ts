@@ -145,6 +145,35 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       })
     );
 
+    const unreadByConversation = new Map<string, number>();
+    if (conversationIds.length > 0) {
+      const assistantMessages = await prisma.message.findMany({
+        where: {
+          conversationId: { in: conversationIds },
+          role: "assistant"
+        },
+        select: {
+          conversationId: true,
+          createdAt: true
+        }
+      });
+
+      const lastReadById = new Map(
+        conversations.map((conversation) => [conversation.id, conversation.lastReadAt])
+      );
+
+      for (const message of assistantMessages) {
+        const lastReadAt = lastReadById.get(message.conversationId) ?? null;
+        if (lastReadAt && message.createdAt <= lastReadAt) {
+          continue;
+        }
+        unreadByConversation.set(
+          message.conversationId,
+          (unreadByConversation.get(message.conversationId) ?? 0) + 1
+        );
+      }
+    }
+
     const items = likes.map((swipe) => {
       const conversation = conversationByCharacterId.get(swipe.characterId);
       const latest = conversation ? latestByConversation.get(conversation.id) : undefined;
@@ -160,6 +189,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         lastMessagePreview: latest?.preview ?? null,
         hasImage: latest?.hasImage ?? false,
         matchedAt: swipe.updatedAt,
+        unreadCount: conversation ? (unreadByConversation.get(conversation.id) ?? 0) : 0,
         intimacyLevel: intimacy.intimacyLevel,
         intimacyScore: intimacy.intimacyScore,
         intimacyProgress: intimacy.intimacyProgress
@@ -196,6 +226,12 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     } catch {
       return reply.notFound("Conversation not found");
     }
+
+    const now = new Date();
+    conversation = await prisma.conversation.update({
+      where: { id },
+      data: { lastReadAt: now }
+    });
 
     const messages = await prisma.message.findMany({
       where: { conversationId: id },

@@ -16,7 +16,8 @@ const importBodySchema = z.object({
         interests: z.array(z.string()).default([]),
         profile: characterProfileSchema,
         personaSystemPrompt: z.string().min(1),
-        personaFacts: z.array(z.string()).default([])
+        personaFacts: z.array(z.string()).default([]),
+        openingMessages: z.array(z.string().trim().min(1)).default([])
       })
     )
     .min(1)
@@ -100,6 +101,7 @@ export const characterRoutes: FastifyPluginAsync = async (app) => {
             profile: character.profile,
             personaSystemPrompt: character.personaSystemPrompt,
             personaFacts: character.personaFacts,
+            openingMessages: character.openingMessages,
             isActive: true
           },
           create: {
@@ -110,7 +112,8 @@ export const characterRoutes: FastifyPluginAsync = async (app) => {
             interests: character.interests,
             profile: character.profile,
             personaSystemPrompt: character.personaSystemPrompt,
-            personaFacts: character.personaFacts
+            personaFacts: character.personaFacts,
+            openingMessages: character.openingMessages
           }
         })
       )

@@ -37,6 +37,7 @@ async function main(): Promise<void> {
       interests: true,
       personaSystemPrompt: true,
       personaFacts: true,
+      openingMessages: true,
       profile: true,
       isActive: true,
       createdAt: true,

@@ -5,7 +5,11 @@ import { env } from "../../lib/env";
 import { notifyAssistantReply } from "../../lib/push/expo-push";
 import { parsePositiveInt } from "../../lib/pagination";
 import { logger } from "../../lib/logger";
-import { generateCharacterReply, generateCharacterReplyStream } from "../llm/chat-service";
+import {
+  generateCharacterReply,
+  generateCharacterReplyStream,
+  roleplaySegmentsForReply
+} from "../llm/chat-service";
 import {
   serializeMessagesWithAttachments,
   type MessageWithAttachments
@@ -13,7 +17,8 @@ import {
 import { attachAssistantMessageToRequest, planImageReply, type ImageReplyPlan } from "../images/image-reply-service";
 import { applyIntimacyEvents, type IntimacyEventInput } from "../intimacy/scoring";
 import { serializeIntimacy, type IntimacySnapshot } from "../intimacy/serializer";
-import { persistAssistantMessage, recordUserMessage } from "./assistant-message";
+import { parseStoredSegments, type RoleplaySegment } from "../llm/roleplay";
+import { assistantPreviewText, persistAssistantMessage, recordUserMessage } from "./assistant-message";
 import { assertConversationOwnership, getOrCreateConversation } from "./service";
 
 /**
@@ -130,6 +135,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
             select: {
               conversationId: true,
               content: true,
+              segments: true,
               createdAt: true,
               mediaStatus: true
             }
@@ -142,7 +148,9 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         return [
           message.conversationId,
           {
-            preview: hasImage ? "Photo" : message.content,
+            preview: hasImage
+              ? "Photo"
+              : assistantPreviewText(parseStoredSegments(message.segments), message.content),
             at: message.createdAt.toISOString(),
             hasImage
           }
@@ -334,7 +342,11 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       });
     };
 
-    const finalizeAssistantMessage = async (content: string, tokenCount: number | null) => {
+    const finalizeAssistantMessage = async (
+      content: string,
+      tokenCount: number | null,
+      segments: RoleplaySegment[] | null
+    ) => {
       const intimacyEvents = photoIntimacyEvents(imagePlan, userMessage.id);
 
       const persisted = await persistAssistantMessage({
@@ -343,6 +355,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         characterId: character.id,
         characterName: character.name,
         content,
+        segments,
         tokenCount,
         source: "assistant_reply",
         mediaStatus:
@@ -401,7 +414,11 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       });
       const latencyMs = Date.now() - startedAt;
 
-      const finalized = await finalizeAssistantMessage(assistant.content, assistant.tokenCount);
+      const finalized = await finalizeAssistantMessage(
+        assistant.content,
+        assistant.tokenCount,
+        assistant.segments
+      );
 
       logger.info(
         {
@@ -421,7 +438,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         ...imageResponseMeta(imagePlan),
         ...finalized.intimacy
       });
-      pushAssistantReply(assistant.content);
+      pushAssistantReply(assistantPreviewText(assistant.segments, assistant.content));
       return reply;
     }
 
@@ -450,7 +467,15 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       );
 
       const storedContent = fullContent || assistant.content;
-      const finalized = await finalizeAssistantMessage(storedContent, assistant.tokenCount);
+      const storedSegments =
+        storedContent === assistant.content
+          ? assistant.segments
+          : roleplaySegmentsForReply(storedContent);
+      const finalized = await finalizeAssistantMessage(
+        storedContent,
+        assistant.tokenCount,
+        storedSegments
+      );
 
       const latencyMs = Date.now() - startedAt;
       logger.info(
@@ -474,7 +499,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         })}\n\n`
       );
       reply.raw.end();
-      pushAssistantReply(storedContent);
+      pushAssistantReply(assistantPreviewText(storedSegments, storedContent));
       return reply;
     } catch (error) {
       logger.error({ err: error, conversationId: conversation.id }, "Failed streaming response");

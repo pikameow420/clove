@@ -1,6 +1,7 @@
 import type { Conversation } from "../../generated/prisma/client";
 import { prisma } from "../../lib/db/prisma";
 import { pickOpeningMessage } from "../characters/opening-message";
+import { roleplaySegmentsForReply } from "../llm/chat-service";
 
 export async function assertConversationOwnership(
   conversationId: string,
@@ -70,6 +71,9 @@ export async function getOrCreateConversation(
         conversationId: conversation.id,
         role: "assistant",
         content: opener,
+        // Authored openers may already contain narration; parse them so the
+        // first message in a thread renders the same as every later one.
+        segments: roleplaySegmentsForReply(opener) ?? undefined,
         createdAt: now,
       },
     });

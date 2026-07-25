@@ -1,6 +1,7 @@
 import type { Message, MessageAttachment } from "../../generated/prisma/client";
 import { env } from "../../lib/env";
 import { createSignedUrls } from "../../lib/storage/supabase-storage";
+import { parseStoredSegments, type RoleplaySegment } from "../llm/roleplay";
 
 export type MessageWithAttachments = Message & { attachments: MessageAttachment[] };
 
@@ -14,8 +15,10 @@ export type SerializedAttachment = {
   urlExpiresInSeconds: number;
 };
 
-export type SerializedMessage = Omit<MessageWithAttachments, "attachments"> & {
+export type SerializedMessage = Omit<MessageWithAttachments, "attachments" | "segments"> & {
   attachments: SerializedAttachment[];
+  /** Normalized roleplay segments, or null when the turn is plain dialogue. */
+  segments: RoleplaySegment[] | null;
 };
 
 /**
@@ -33,6 +36,7 @@ export async function serializeMessagesWithAttachments(
 
   return messages.map((message) => ({
     ...message,
+    segments: parseStoredSegments(message.segments),
     attachments: message.attachments.map((attachment) => ({
       id: attachment.id,
       type: attachment.type,

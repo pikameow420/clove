@@ -5,6 +5,11 @@ import { notifyAssistantReply } from "../../lib/push/expo-push";
 import { applyIntimacyEvents, type IntimacyEventInput } from "../intimacy/scoring";
 import { serializeIntimacy, type IntimacySnapshot } from "../intimacy/serializer";
 import { buildSharedDayEvent, buildUserMessageIntimacyEvents } from "../intimacy/user-turn";
+import {
+  previewTextFromContent,
+  segmentsToPreviewText,
+  type RoleplaySegment
+} from "../llm/roleplay";
 import { refreshConversationMemory } from "./memory";
 
 type AttachmentInput = {
@@ -22,6 +27,8 @@ type PersistAssistantMessageArgs = {
   characterId: string;
   characterName: string;
   content: string;
+  /** Roleplay narration/dialogue split; null keeps the plain-content rendering. */
+  segments?: RoleplaySegment[] | null;
   tokenCount: number | null;
   source: MessageSource;
   proactiveTrigger?: ProactiveTrigger;
@@ -40,6 +47,17 @@ export type PersistAssistantMessageResult = {
   intimacy: IntimacySnapshot;
 };
 
+/**
+ * Notifications and list previews show one line of text, where a stripped scene
+ * description ("*she looks up from her book*") reads as broken markup.
+ */
+export function assistantPreviewText(
+  segments: RoleplaySegment[] | null | undefined,
+  content: string
+): string {
+  return segments ? segmentsToPreviewText(segments) : previewTextFromContent(content);
+}
+
 export async function persistAssistantMessage(
   args: PersistAssistantMessageArgs
 ): Promise<PersistAssistantMessageResult> {
@@ -48,6 +66,7 @@ export async function persistAssistantMessage(
       conversationId: args.conversationId,
       role: "assistant",
       content: args.content,
+      segments: args.segments ?? undefined,
       tokenCount: args.tokenCount ?? undefined,
       source: args.source,
       proactiveTrigger: args.proactiveTrigger,
@@ -150,7 +169,7 @@ export async function persistAssistantMessage(
       characterId: args.characterId,
       characterName: args.characterName,
       conversationId: args.conversationId,
-      replyContent: args.content
+      replyContent: assistantPreviewText(args.segments, args.content)
     });
   }
 

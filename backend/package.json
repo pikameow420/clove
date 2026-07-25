@@ -10,7 +10,7 @@
     "worker:proactive": "tsx src/worker/proactive-worker.ts",
     "worker:images": "tsx src/worker/image-worker.ts",
     "cli:proactive-once": "tsx src/cli/proactive-once.ts",
-    "test": "tsx --test src/modules/images/__tests__/*.test.ts src/modules/users/__tests__/*.test.ts src/modules/intimacy/__tests__/*.test.ts",
+    "test": "tsx --test src/modules/**/__tests__/*.test.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",

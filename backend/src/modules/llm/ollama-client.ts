@@ -1,9 +1,5 @@
 import { env } from "../../lib/env";
-
-type OllamaMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
-};
+import type { LlmChatMessage, LlmChatOptions, LlmChatResult, LlmTokenHandler } from "./types";
 
 type OllamaStreamChunk = {
   done: boolean;
@@ -15,20 +11,28 @@ type OllamaStreamChunk = {
   eval_count?: number;
 };
 
-type OllamaOptions = {
-  temperature?: number;
-  maxTokens?: number;
-};
-
 function withTimeoutSignal(ms: number): AbortSignal {
   return AbortSignal.timeout(ms);
 }
 
-function buildRequestBody(messages: OllamaMessage[], stream: boolean, options?: OllamaOptions) {
+/** Set at boot by the env schema whenever LLM_PROVIDER is "ollama". */
+function requireOllamaConfig(): { baseUrl: string; model: string } {
+  if (!env.OLLAMA_BASE_URL || !env.OLLAMA_MODEL) {
+    throw new Error("Ollama is not configured: set OLLAMA_BASE_URL and OLLAMA_MODEL");
+  }
+  return { baseUrl: env.OLLAMA_BASE_URL, model: env.OLLAMA_MODEL };
+}
+
+export function buildOllamaRequestBody(
+  messages: LlmChatMessage[],
+  stream: boolean,
+  options?: LlmChatOptions
+) {
   return {
-    model: env.OLLAMA_MODEL,
+    model: requireOllamaConfig().model,
     stream,
     messages,
+    ...(options?.responseFormat === "json" ? { format: "json" as const } : {}),
     options: {
       temperature: options?.temperature ?? 0.8,
       num_predict: options?.maxTokens ?? 256
@@ -37,14 +41,14 @@ function buildRequestBody(messages: OllamaMessage[], stream: boolean, options?: 
 }
 
 export async function chatWithOllama(
-  messages: OllamaMessage[],
-  options?: OllamaOptions
-): Promise<{ content: string; tokenCount: number | null }> {
-  const response = await fetch(`${env.OLLAMA_BASE_URL}/api/chat`, {
+  messages: LlmChatMessage[],
+  options?: LlmChatOptions
+): Promise<LlmChatResult> {
+  const response = await fetch(`${requireOllamaConfig().baseUrl}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: withTimeoutSignal(env.LLM_TIMEOUT_MS),
-    body: JSON.stringify(buildRequestBody(messages, false, options))
+    body: JSON.stringify(buildOllamaRequestBody(messages, false, options))
   });
 
   if (!response.ok) {
@@ -63,15 +67,15 @@ export async function chatWithOllama(
 }
 
 export async function streamChatWithOllama(
-  messages: OllamaMessage[],
-  onToken: (token: string) => void,
-  options?: OllamaOptions
-): Promise<{ content: string; tokenCount: number | null }> {
-  const response = await fetch(`${env.OLLAMA_BASE_URL}/api/chat`, {
+  messages: LlmChatMessage[],
+  onToken: LlmTokenHandler,
+  options?: LlmChatOptions
+): Promise<LlmChatResult> {
+  const response = await fetch(`${requireOllamaConfig().baseUrl}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: withTimeoutSignal(env.LLM_TIMEOUT_MS),
-    body: JSON.stringify(buildRequestBody(messages, true, options))
+    body: JSON.stringify(buildOllamaRequestBody(messages, true, options))
   });
 
   if (!response.ok || !response.body) {

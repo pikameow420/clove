@@ -1,7 +1,7 @@
 import type { Message } from "../../generated/prisma/client";
 import { logger } from "../../lib/logger";
 import { memoryWarmthPoints } from "../intimacy/rules";
-import { chatWithOllama } from "./ollama-client";
+import { extractJsonObject, llmChatJson } from "./provider";
 
 export type ConversationMemory = {
   characterArc: string;
@@ -140,13 +140,8 @@ export async function updateConversationMemory(params: {
   ];
 
   try {
-    const result = await chatWithOllama(memoryPrompt, { temperature: 0.2, maxTokens: 400 });
-    const jsonMatch = result.content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No JSON in memory response");
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]) as Partial<ConversationMemory> & {
+    const result = await llmChatJson(memoryPrompt, { temperature: 0.2, maxTokens: 400 });
+    const parsed = extractJsonObject(result.content) as Partial<ConversationMemory> & {
       warmth?: unknown;
       disclosure?: unknown;
       reciprocity?: unknown;

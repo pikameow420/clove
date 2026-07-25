@@ -3,7 +3,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import type { Message, MessageRole } from "../generated/prisma/client";
 import { prisma, connectDb, disconnectDb } from "../lib/db/prisma";
-import { generateCharacterReply } from "../modules/llm/chat-service";
+import { generateCharacterReply, type CharacterReply } from "../modules/llm/chat-service";
 
 function toMessage(role: MessageRole, content: string): Message {
   return {
@@ -11,12 +11,26 @@ function toMessage(role: MessageRole, content: string): Message {
     conversationId: "cli-session",
     role,
     content,
+    segments: null,
     tokenCount: null,
     source: null,
     proactiveTrigger: null,
     mediaStatus: "none",
     createdAt: new Date()
   };
+}
+
+const DIM_ITALIC = "\x1b[2;3m";
+const RESET = "\x1b[0m";
+
+/** Mirrors the app, where narration renders as an italic block rather than a bubble. */
+function renderReply(reply: CharacterReply): string {
+  if (!reply.segments) {
+    return reply.content;
+  }
+  return reply.segments
+    .map((segment) => (segment.type === "narration" ? `${DIM_ITALIC}${segment.text}${RESET}` : segment.text))
+    .join("\n");
 }
 
 async function main(): Promise<void> {
@@ -96,7 +110,7 @@ async function main(): Promise<void> {
 
     history.push(toMessage("user", userInput));
     history.push(toMessage("assistant", reply.content));
-    console.log(`\n${selected.name}: ${reply.content}`);
+    console.log(`\n${selected.name}: ${renderReply(reply)}`);
   }
 
   rl.close();

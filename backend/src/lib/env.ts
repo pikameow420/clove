@@ -7,9 +7,20 @@ const envSchema = z.object({
   HOST: z.string().default("0.0.0.0"),
   CORS_ORIGIN: z.string().default("*"),
   ADMIN_API_KEY: z.string().min(1),
-  OLLAMA_BASE_URL: z.string().url(),
-  OLLAMA_MODEL: z.string().min(1),
+  LLM_PROVIDER: z.enum(["ollama", "gemini"]).default("ollama"),
+  OLLAMA_BASE_URL: z.string().url().optional(),
+  OLLAMA_MODEL: z.string().min(1).optional(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  GEMINI_BASE_URL: z.string().url().default("https://generativelanguage.googleapis.com/v1beta"),
+  GEMINI_MODEL: z.string().min(1).default("gemini-flash-lite-latest"),
+  // Flash-Lite reasons before answering by default, which costs seconds of
+  // latency we do not want in a chat. Set to "off" for models that reject it.
+  GEMINI_THINKING_LEVEL: z.enum(["off", "minimal", "low", "medium", "high"]).default("minimal"),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(40000),
+  ROLEPLAY_ENABLED: z
+    .string()
+    .default("true")
+    .transform((value) => value !== "false"),
   MAX_INPUT_CHARS: z.coerce.number().int().positive().default(2000),
   MAX_CONTEXT_MESSAGES: z.coerce.number().int().positive().default(20),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
@@ -43,4 +54,45 @@ const envSchema = z.object({
   IMAGE_WORKER_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3)
 });
 
-export const env = envSchema.parse(process.env);
+/**
+ * Only the credentials for the selected provider are required, so switching to
+ * Gemini needs nothing but GEMINI_API_KEY and does not force an Ollama host to
+ * stay configured.
+ */
+function assertProviderCredentials(value: z.infer<typeof envSchema>, ctx: z.RefinementCtx): void {
+  switch (value.LLM_PROVIDER) {
+    case "ollama": {
+      if (!value.OLLAMA_BASE_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["OLLAMA_BASE_URL"],
+          message: "OLLAMA_BASE_URL is required when LLM_PROVIDER is \"ollama\""
+        });
+      }
+      if (!value.OLLAMA_MODEL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["OLLAMA_MODEL"],
+          message: "OLLAMA_MODEL is required when LLM_PROVIDER is \"ollama\""
+        });
+      }
+      return;
+    }
+    case "gemini": {
+      if (!value.GEMINI_API_KEY) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["GEMINI_API_KEY"],
+          message: "GEMINI_API_KEY is required when LLM_PROVIDER is \"gemini\""
+        });
+      }
+      return;
+    }
+    default: {
+      const exhaustive: never = value.LLM_PROVIDER;
+      throw new Error(`Unhandled LLM provider: ${exhaustive}`);
+    }
+  }
+}
+
+export const env = envSchema.superRefine(assertProviderCredentials).parse(process.env);

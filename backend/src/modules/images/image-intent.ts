@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Character, Message } from "../../generated/prisma/client";
 import { logger } from "../../lib/logger";
-import { chatWithOllama } from "../llm/ollama-client";
+import { extractJsonObject, llmChatJson } from "../llm/provider";
 
 export const REJECTION_REASONS = [
   "not_image_request",
@@ -202,15 +202,6 @@ function buildClassifierPrompt(params: {
   return { system, user };
 }
 
-function extractJson(text: string): unknown {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("No JSON object in classifier output");
-  }
-  return JSON.parse(text.slice(start, end + 1));
-}
-
 /**
  * Classifies whether the latest user message is an allowed image request.
  * Deterministic hard rules run first; malformed classifier output is denied.
@@ -230,14 +221,14 @@ export async function classifyImageIntent(params: {
 
   let parsed: z.infer<typeof classifierOutputSchema>;
   try {
-    const reply = await chatWithOllama(
+    const reply = await llmChatJson(
       [
         { role: "system", content: prompt.system },
         { role: "user", content: prompt.user },
       ],
       { temperature: 0.1, maxTokens: 400 }
     );
-    parsed = classifierOutputSchema.parse(extractJson(reply.content));
+    parsed = classifierOutputSchema.parse(extractJsonObject(reply.content));
   } catch (error) {
     logger.warn({ err: error }, "Image intent classifier output invalid; defaulting to deny");
     return { kind: "rejected", reason: "unsafe_other" };

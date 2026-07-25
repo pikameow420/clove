@@ -162,10 +162,14 @@ model IntimacyEvent {
 }
 
 model Message {
-  id               String              @id @default(cuid())
-  conversationId   String
-  role             MessageRole
-  content          String
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  /// Raw model output, narration markers included. Kept verbatim as LLM context.
+  content        String
+  /// Parsed roleplay segments ([{type:"narration"|"dialogue",text}]).
+  /// Null for plain dialogue turns and for rows written before roleplay mode.
+  segments         Json?
   tokenCount       Int?
   source           MessageSource?
   proactiveTrigger ProactiveTrigger?

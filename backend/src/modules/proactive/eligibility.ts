@@ -2,7 +2,8 @@ import type { Character, Conversation, Message, ProactiveTrigger } from "../../g
 import { prisma } from "../../lib/db/prisma";
 import { env } from "../../lib/env";
 import { buildProactiveLlmMessages } from "./prompt-builder";
-import { chatWithOllama } from "../llm/ollama-client";
+import { llmChat } from "../llm/provider";
+import { parseRoleplaySegments, type RoleplaySegment } from "../llm/roleplay";
 import { persistAssistantMessage } from "../conversations/assistant-message";
 
 export type ProactiveCandidate = {
@@ -162,11 +163,16 @@ async function generateProactiveReply(params: {
   trigger: ProactiveTrigger;
   idleHours?: number;
   intimacyLevel?: number;
-}): Promise<{ content: string; tokenCount: number | null }> {
+}): Promise<{ content: string; tokenCount: number | null; segments: RoleplaySegment[] | null }> {
   const llmMessages = buildProactiveLlmMessages(params);
-  const reply = await chatWithOllama(llmMessages);
+  const reply = await llmChat(llmMessages);
   const content = reply.content.replace(/[\u2014\u2013]/g, ",");
-  return { content, tokenCount: reply.tokenCount };
+  const segments = env.ROLEPLAY_ENABLED ? parseRoleplaySegments(content) : [];
+  return {
+    content,
+    tokenCount: reply.tokenCount,
+    segments: segments.some((segment) => segment.type === "narration") ? segments : null
+  };
 }
 
 export async function sendProactiveMessage(candidate: ProactiveCandidate): Promise<Message> {
@@ -206,6 +212,7 @@ export async function sendProactiveMessage(candidate: ProactiveCandidate): Promi
     characterId: candidate.characterId,
     characterName: candidate.character.name,
     content: reply.content,
+    segments: reply.segments,
     tokenCount: reply.tokenCount,
     source: "assistant_proactive",
     proactiveTrigger: candidate.trigger,

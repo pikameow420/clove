@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../lib/db/prisma";
 import { env } from "../../lib/env";
+import { notifyAssistantReply } from "../../lib/push/expo-push";
 import { parsePositiveInt } from "../../lib/pagination";
 import { logger } from "../../lib/logger";
 import { generateCharacterReply, generateCharacterReplyStream } from "../llm/chat-service";
@@ -80,6 +81,10 @@ function photoIntimacyEvents(plan: ImageReplyPlan, userMessageId: string): Intim
   }
 }
 
+/** Enough to fill a phone screen with headroom; older pages load on scroll. */
+const DEFAULT_MESSAGE_PAGE_SIZE = 30;
+const MAX_MESSAGE_PAGE_SIZE = 200;
+
 const conversationByCharacterBody = z.object({
   characterId: z.string().min(1)
 });
@@ -145,32 +150,27 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       })
     );
 
+    // Counted in the database rather than by loading every assistant message the
+    // user has ever received. Each branch of the OR is a range scan on
+    // Message(conversationId, createdAt), so the cost tracks unread volume
+    // instead of total history.
     const unreadByConversation = new Map<string, number>();
-    if (conversationIds.length > 0) {
-      const assistantMessages = await prisma.message.findMany({
+    if (conversations.length > 0) {
+      const unread = await prisma.message.groupBy({
+        by: ["conversationId"],
         where: {
-          conversationId: { in: conversationIds },
-          role: "assistant"
+          role: "assistant",
+          OR: conversations.map((conversation) =>
+            conversation.lastReadAt
+              ? { conversationId: conversation.id, createdAt: { gt: conversation.lastReadAt } }
+              : { conversationId: conversation.id }
+          )
         },
-        select: {
-          conversationId: true,
-          createdAt: true
-        }
+        _count: { _all: true }
       });
 
-      const lastReadById = new Map(
-        conversations.map((conversation) => [conversation.id, conversation.lastReadAt])
-      );
-
-      for (const message of assistantMessages) {
-        const lastReadAt = lastReadById.get(message.conversationId) ?? null;
-        if (lastReadAt && message.createdAt <= lastReadAt) {
-          continue;
-        }
-        unreadByConversation.set(
-          message.conversationId,
-          (unreadByConversation.get(message.conversationId) ?? 0) + 1
-        );
+      for (const row of unread) {
+        unreadByConversation.set(row.conversationId, row._count._all);
       }
     }
 
@@ -214,11 +214,18 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  /**
+   * Returns the newest page of a thread and walks backwards from there.
+   *
+   * `before` takes a message id and yields the messages immediately older than
+   * it. `items` always comes back oldest-first so the client can append it
+   * straight onto the top of the list.
+   */
   app.get("/conversations/:id/messages", async (request, reply) => {
     const { id } = request.params as { id: string };
     const query = request.query as Record<string, unknown>;
-    const limit = parsePositiveInt(query.limit, 50, 200);
-    const cursor = typeof query.cursor === "string" ? query.cursor : undefined;
+    const limit = parsePositiveInt(query.limit, DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE);
+    const before = typeof query.before === "string" ? query.before : undefined;
 
     let conversation;
     try {
@@ -227,24 +234,35 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       return reply.notFound("Conversation not found");
     }
 
-    const now = new Date();
-    conversation = await prisma.conversation.update({
-      where: { id },
-      data: { lastReadAt: now }
-    });
-
-    const messages = await prisma.message.findMany({
+    const newestFirst = await prisma.message.findMany({
       where: { conversationId: id },
-      orderBy: { createdAt: "asc" },
+      // createdAt alone is not deterministic: a user turn and its reply can land
+      // in the same millisecond, which would make cursor paging skip or repeat.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       include: { attachments: true },
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {})
+      ...(before ? { cursor: { id: before }, skip: 1 } : {})
     });
 
-    const hasNextPage = messages.length > limit;
-    const page = hasNextPage ? messages.slice(0, limit) : messages;
-    const nextCursor = hasNextPage ? page[page.length - 1]?.id : null;
-    const items = await serializeMessagesWithAttachments(page);
+    const hasNextPage = newestFirst.length > limit;
+    const page = hasNextPage ? newestFirst.slice(0, limit) : newestFirst;
+    // The cursor is the oldest row handed out, which is where the next (older)
+    // page picks up.
+    const nextCursor = hasNextPage ? (page[page.length - 1]?.id ?? null) : null;
+    const ordered = [...page].reverse();
+
+    // Only the first page represents "the user is looking at the latest
+    // messages". Paging into history is not a read, and neither is the 3s poll
+    // that runs while a photo generates, which used to write on every tick.
+    const newest = ordered[ordered.length - 1];
+    if (!before && newest && (!conversation.lastReadAt || newest.createdAt > conversation.lastReadAt)) {
+      conversation = await prisma.conversation.update({
+        where: { id },
+        data: { lastReadAt: new Date() }
+      });
+    }
+
+    const items = await serializeMessagesWithAttachments(ordered);
 
     return {
       items,
@@ -306,6 +324,16 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     const llmHistory = withPhotoMarkers(recentMessages);
     const intimacyLevelForPrompt = userTurn.intimacy.intimacyLevel;
 
+    const pushAssistantReply = (replyContent: string) => {
+      void notifyAssistantReply({
+        userId: request.user.id,
+        characterId: character.id,
+        characterName: character.name,
+        conversationId: conversation.id,
+        replyContent
+      });
+    };
+
     const finalizeAssistantMessage = async (content: string, tokenCount: number | null) => {
       const intimacyEvents = photoIntimacyEvents(imagePlan, userMessage.id);
 
@@ -332,6 +360,9 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         existingSummary: conversation.summary,
         latestUserInput: parsedBody.data.content,
         latestAssistantReply: content,
+        // Pushed manually after the response is flushed, so the notification
+        // never reaches the device before the reply is visible in the app.
+        sendPush: false,
         intimacyEvents
       });
 
@@ -384,12 +415,14 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         "Generated assistant response"
       );
 
-      return {
+      reply.send({
         userMessage,
         assistantMessage: finalized.assistantMessage,
         ...imageResponseMeta(imagePlan),
         ...finalized.intimacy
-      };
+      });
+      pushAssistantReply(assistant.content);
+      return reply;
     }
 
     reply.raw.setHeader("Content-Type", "text/event-stream");
@@ -441,6 +474,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         })}\n\n`
       );
       reply.raw.end();
+      pushAssistantReply(storedContent);
       return reply;
     } catch (error) {
       logger.error({ err: error, conversationId: conversation.id }, "Failed streaming response");

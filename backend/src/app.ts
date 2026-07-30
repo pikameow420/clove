@@ -13,6 +13,7 @@ import { conversationRoutes } from "./modules/conversations/routes";
 import { proactiveAdminRoutes } from "./modules/proactive/routes";
 import { imageAdminRoutes } from "./modules/images/routes";
 import { userRoutes } from "./modules/users/routes";
+import { ttsRoutes } from "./modules/tts/routes";
 
 type RateLimitBucket = "read" | "chat" | "write";
 
@@ -112,6 +113,7 @@ export function buildApp() {
   app.register(proactiveAdminRoutes);
   app.register(imageAdminRoutes);
   app.register(userRoutes);
+  app.register(ttsRoutes);
 
   return app;
 }

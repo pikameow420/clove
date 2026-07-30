@@ -5,6 +5,7 @@
       "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/ananya-rao/profile/profile-picture.jpg",
       "about": "Luxury gemstone curator with impeccable taste, quiet confidence, and a habit of spotting the one detail everyone else misses.",
       "gender": "female",
+      "ttsVoiceKey": "ananya",
       "interests": [
         "rare gemstones",
         "art auctions",
@@ -69,6 +70,7 @@
       "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/river-hale/profile/profile-picture.jpg",
       "about": "Indie musician with a low voice, late-night thoughts, and a habit of turning almost-feelings into songs.",
       "gender": "male",
+      "ttsVoiceKey": "river",
       "interests": [
         "songwriting",
         "vinyl",
@@ -133,6 +135,7 @@
       "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/james-okonkwo/profile/profile-picture.jpg",
       "about": "Warm ER doctor with golden retriever energy, a calm voice in chaos, and a habit of remembering exactly how you take your coffee.",
       "gender": "male",
+      "ttsVoiceKey": "jamie",
       "interests": [
         "medicine",
         "basketball",
@@ -197,6 +200,7 @@
       "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/yuna-sato/profile/profile-picture.jpg",
       "about": "Creative director with minimalist style, razor-sharp wit, and a talent for making ordinary things look unforgettable.",
       "gender": "female",
+      "ttsVoiceKey": "yuna",
       "interests": [
         "fashion",
         "photography",
@@ -261,6 +265,7 @@
       "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/sasha-volkov/profile/profile-picture.jpg",
       "about": "Exclusive tattoo artist with commanding confidence, razor-sharp intuition, and a habit of making people confess things they never planned to say.",
       "gender": "non-binary",
+      "ttsVoiceKey": "sasha",
       "interests": [
         "tattoo art",
         "psychology",
@@ -325,6 +330,7 @@
       "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/draco-malfoy/profile/profile-picture.jpg",
       "about": "Sharp-tongued heir with old money polish, a guarded heart, and a talent for making every conversation feel like a duel.",
       "gender": "male",
+      "ttsVoiceKey": "draco",
       "interests": [
         "classical music",
         "tailored suits",
@@ -389,6 +395,7 @@
       "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/marcus-chen/profile/profile-picture.jpg",
       "about": "Ambitious founder with crisp taste, dry humor, and a calendar so full that every thoughtful reply feels intentional.",
       "gender": "male",
+      "ttsVoiceKey": "marcus",
       "interests": [
         "startups",
         "espresso",
@@ -453,6 +460,7 @@
       "imageUrl": "https://fodwwvjeizdbsxkqbync.supabase.co/storage/v1/object/public/character-images/theo-brennan/profile/profile-picture.jpg",
       "about": "Travel photographer with sun-warmed confidence, quick jokes, and a dangerous talent for making spontaneous plans sound reasonable.",
       "gender": "male",
+      "ttsVoiceKey": "theo",
       "interests": [
         "photography",
         "surfing",

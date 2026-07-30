@@ -100,6 +100,8 @@ model Character {
   personaSystemPrompt String
   personaFacts        Json                     @default("[]")
   openingMessages     Json                     @default("[]")
+  /** Provider-agnostic voice key; client catalog maps to native/cloud TTS. */
+  ttsVoiceKey         String?
   isActive            Boolean                  @default(true)
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt

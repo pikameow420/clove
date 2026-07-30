@@ -223,6 +223,32 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
+   * Marks the thread read without fetching messages. Lets the client clear
+   * unread badges while keeping a warm message cache on screen.
+   */
+  app.post("/conversations/:id/read", async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    let conversation;
+    try {
+      conversation = await assertConversationOwnership(id, request.user.id);
+    } catch {
+      return reply.notFound("Conversation not found");
+    }
+
+    const previousLastReadAt = conversation.lastReadAt?.toISOString() ?? null;
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: { lastReadAt: new Date() }
+    });
+
+    return {
+      previousLastReadAt,
+      lastReadAt: updated.lastReadAt?.toISOString() ?? new Date().toISOString()
+    };
+  });
+
+  /**
    * Returns the newest page of a thread and walks backwards from there.
    *
    * `before` takes a message id and yields the messages immediately older than
@@ -262,6 +288,10 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     // Only the first page represents "the user is looking at the latest
     // messages". Paging into history is not a read, and neither is the 3s poll
     // that runs while a photo generates, which used to write on every tick.
+    // Capture before mark-as-read so the client can autoplay unread replies
+    // for this open without racing the update below.
+    const unreadSince = conversation.lastReadAt?.toISOString() ?? null;
+
     const newest = ordered[ordered.length - 1];
     if (!before && newest && (!conversation.lastReadAt || newest.createdAt > conversation.lastReadAt)) {
       conversation = await prisma.conversation.update({
@@ -275,7 +305,10 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     return {
       items,
       pageInfo: { hasNextPage, nextCursor },
-      intimacy: serializeIntimacy(conversation)
+      intimacy: serializeIntimacy(conversation),
+      // Only meaningful on the newest page (`!before`); older pages omit the
+      // mark-as-read path but still echo the watermark for a consistent shape.
+      unreadSince
     };
   });
 

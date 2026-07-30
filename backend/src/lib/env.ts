@@ -51,7 +51,18 @@ const envSchema = z.object({
   IMAGE_CACHE_LIMIT_PER_CHARACTER: z.coerce.number().int().positive().default(20),
   IMAGE_WORKER_POLL_MS: z.coerce.number().int().positive().default(5_000),
   IMAGE_WORKER_LEASE_MS: z.coerce.number().int().positive().default(300_000),
-  IMAGE_WORKER_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3)
+  IMAGE_WORKER_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
+  FISH_AUDIO_API_KEY: z.string().min(1).optional(),
+  FISH_TTS_MODEL: z.string().min(1).default("s2.1-pro-free"),
+  FISH_TTS_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (value === "true") return true;
+      if (value === "false") return false;
+      return undefined;
+    }),
+  FISH_TTS_MAX_CHARS: z.coerce.number().int().positive().default(2000)
 });
 
 /**
@@ -96,3 +107,6 @@ function assertProviderCredentials(value: z.infer<typeof envSchema>, ctx: z.Refi
 }
 
 export const env = envSchema.superRefine(assertProviderCredentials).parse(process.env);
+
+/** Fish TTS is on when a key exists, unless FISH_TTS_ENABLED=false. */
+export const fishTtsEnabled = env.FISH_TTS_ENABLED ?? Boolean(env.FISH_AUDIO_API_KEY);

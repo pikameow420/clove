@@ -15,6 +15,7 @@ const character = {
   personaSystemPrompt: "Dry, watchful, warms up slowly.",
   personaFacts: ["Grew up in a lighthouse"],
   openingMessages: [],
+  ttsVoiceKey: null,
   isActive: true,
   createdAt: new Date(),
   updatedAt: new Date()

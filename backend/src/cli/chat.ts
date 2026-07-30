@@ -53,6 +53,7 @@ async function main(): Promise<void> {
       personaFacts: true,
       openingMessages: true,
       profile: true,
+      ttsVoiceKey: true,
       isActive: true,
       createdAt: true,
       updatedAt: true,

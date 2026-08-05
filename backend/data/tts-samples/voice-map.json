@@ -4,7 +4,7 @@
   "voices": [
     {
       "key": "ananya",
-      "fishVoiceId": "a6630e2dd6c14ea799c2a7c078e0d8de",
+      "fishVoiceId": "5233336f5f44460ea0902b0802375451",
       "title": "Indian Female",
       "sampleFile": "ananya.mp3",
       "sampleText": "I'm curious. What's something you've spent far too much money on and never regretted?"
@@ -18,42 +18,42 @@
     },
     {
       "key": "jamie",
-      "fishVoiceId": "d05010fdc9b947829b1a9b2dab0c20ba",
+      "fishVoiceId": "e758e8fd8ae34b18bd46e6ddda771054",
       "title": "Friendly Confident Male",
       "sampleFile": "jamie.mp3",
       "sampleText": "Glad we matched. Tell me the last thing that kept you awake longer than it should have."
     },
     {
       "key": "yuna",
-      "fishVoiceId": "2a9605eeafe84974b5b20628d42c0060",
+      "fishVoiceId": "8ac193f2ae964c02ad0ef4f93d09e5d6",
       "title": "Female Voice",
       "sampleFile": "yuna.mp3",
       "sampleText": "I design for people who notice the quiet details. What caught your eye first?"
     },
     {
       "key": "sasha",
-      "fishVoiceId": "e29c2758c6e74b7e9650c13413d21ca0",
+      "fishVoiceId": "284e1c31e390405a8417e874259bd8aa",
       "title": "Androgynous",
       "sampleFile": "sasha.mp3",
       "sampleText": "People confess things under my needle they never meant to say. Careful what you ask for."
     },
     {
       "key": "draco",
-      "fishVoiceId": "65c0b8155c464a648161af8877404f11",
-      "title": "Brian British",
+      "fishVoiceId": "0fe8aa6bccf64c48b67f034aa17c6058",
+      "title": "Draco British",
       "sampleFile": "draco.mp3",
       "sampleText": "Do try not to bore me. Most people manage it within the first minute."
     },
     {
       "key": "marcus",
-      "fishVoiceId": "a80cf1a25ee848c78d61ebcbe68be474",
+      "fishVoiceId": "a5971a1fd805441aaf3b0bbe8c9f1ab6",
       "title": "American Tech Review Voice",
       "sampleFile": "marcus.mp3",
       "sampleText": "My calendar is full, so if I'm texting you, it means something. What's on yours?"
     },
     {
       "key": "theo",
-      "fishVoiceId": "3d208bc3930245468ff4f69d346d7618",
+      "fishVoiceId": "730f7330e8864994b6fa2af1c90d7c55",
       "title": "Lively Young Male",
       "sampleFile": "theo.mp3",
       "sampleText": "I just landed somewhere warm. Want to make a terrible plan with me?"

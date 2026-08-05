@@ -90,38 +90,42 @@ export const characterRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
 
-    await prisma.$transaction(
-      parsed.data.characters.map((character) =>
-        prisma.character.upsert({
-          where: { name: character.name },
-          update: {
-            imageUrl: character.imageUrl,
-            about: character.about,
-            gender: character.gender,
-            interests: character.interests,
-            profile: character.profile,
-            personaSystemPrompt: character.personaSystemPrompt,
-            personaFacts: character.personaFacts,
-            openingMessages: character.openingMessages,
-            ttsVoiceKey: character.ttsVoiceKey,
-            isActive: true
-          },
-          create: {
-            name: character.name,
-            imageUrl: character.imageUrl,
-            about: character.about,
-            gender: character.gender,
-            interests: character.interests,
-            profile: character.profile,
-            personaSystemPrompt: character.personaSystemPrompt,
-            personaFacts: character.personaFacts,
-            openingMessages: character.openingMessages,
-            ttsVoiceKey: character.ttsVoiceKey
-          }
-        })
-      )
-    );
+    // Sequential upserts instead of a single $transaction([...]): the Supabase
+    // pooler cannot always start a transaction within Prisma's default timeout
+    // (P2028). Upserts are idempotent (unique name), so partial failures are
+    // safe to re-run and never leave duplicate characters.
+    let imported = 0;
+    for (const character of parsed.data.characters) {
+      await prisma.character.upsert({
+        where: { name: character.name },
+        update: {
+          imageUrl: character.imageUrl,
+          about: character.about,
+          gender: character.gender,
+          interests: character.interests,
+          profile: character.profile,
+          personaSystemPrompt: character.personaSystemPrompt,
+          personaFacts: character.personaFacts,
+          openingMessages: character.openingMessages,
+          ttsVoiceKey: character.ttsVoiceKey,
+          isActive: true
+        },
+        create: {
+          name: character.name,
+          imageUrl: character.imageUrl,
+          about: character.about,
+          gender: character.gender,
+          interests: character.interests,
+          profile: character.profile,
+          personaSystemPrompt: character.personaSystemPrompt,
+          personaFacts: character.personaFacts,
+          openingMessages: character.openingMessages,
+          ttsVoiceKey: character.ttsVoiceKey
+        }
+      });
+      imported += 1;
+    }
 
-    return { imported: parsed.data.characters.length };
+    return { imported };
   });
 };

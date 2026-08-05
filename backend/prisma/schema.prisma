@@ -109,6 +109,7 @@ model Character {
   conversations       Conversation[]
   imageAssets         CharacterImageAsset[]
   imageRequests       ImageGenerationRequest[]
+  voices              Voice[]
 }
 
 model Swipe {
@@ -200,6 +201,19 @@ model MessageAttachment {
 
   @@index([messageId])
   @@index([assetId])
+}
+
+model Voice {
+  id                 String    @id @default(cuid())
+  characterId        String
+  fishVoiceId        String
+  referenceAudioPath String?
+  sourceKey          String?
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  character          Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@index([characterId, isActive])
 }
 
 model CharacterImageAsset {

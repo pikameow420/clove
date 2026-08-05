@@ -182,27 +182,35 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    const items = likes.map((swipe) => {
-      const conversation = conversationByCharacterId.get(swipe.characterId);
-      const latest = conversation ? latestByConversation.get(conversation.id) : undefined;
-      const intimacy = serializeIntimacy({
-        intimacyLevel: conversation?.intimacyLevel,
-        intimacyScore: conversation?.intimacyScore
+    const items = likes
+      .map((swipe) => {
+        const conversation = conversationByCharacterId.get(swipe.characterId);
+        const latest = conversation ? latestByConversation.get(conversation.id) : undefined;
+        const intimacy = serializeIntimacy({
+          intimacyLevel: conversation?.intimacyLevel,
+          intimacyScore: conversation?.intimacyScore
+        });
+        return {
+          conversationId: conversation?.id ?? null,
+          character: swipe.character,
+          lastMessageAt:
+            latest?.at ?? conversation?.lastMessageAt?.toISOString() ?? null,
+          lastMessagePreview: latest?.preview ?? null,
+          hasImage: latest?.hasImage ?? false,
+          matchedAt: swipe.updatedAt,
+          unreadCount: conversation ? (unreadByConversation.get(conversation.id) ?? 0) : 0,
+          intimacyLevel: intimacy.intimacyLevel,
+          intimacyScore: intimacy.intimacyScore,
+          intimacyProgress: intimacy.intimacyProgress
+        };
+      })
+      // Most-recent-first: the latest message wins, then the last activity on
+      // the conversation, then the swipe time for matches with no messages yet.
+      .sort((a, b) => {
+        const at = (row: { lastMessageAt: string | null; matchedAt: Date }) =>
+          row.lastMessageAt ? new Date(row.lastMessageAt).getTime() : row.matchedAt.getTime();
+        return at(b) - at(a);
       });
-      return {
-        conversationId: conversation?.id ?? null,
-        character: swipe.character,
-        lastMessageAt:
-          latest?.at ?? conversation?.lastMessageAt?.toISOString() ?? null,
-        lastMessagePreview: latest?.preview ?? null,
-        hasImage: latest?.hasImage ?? false,
-        matchedAt: swipe.updatedAt,
-        unreadCount: conversation ? (unreadByConversation.get(conversation.id) ?? 0) : 0,
-        intimacyLevel: intimacy.intimacyLevel,
-        intimacyScore: intimacy.intimacyScore,
-        intimacyProgress: intimacy.intimacyProgress
-      };
-    });
 
     return { items };
   });

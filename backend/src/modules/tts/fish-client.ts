@@ -1,35 +1,11 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { env } from "../../lib/env";
-
-const mapPath = join(process.cwd(), "data/fish-voice-map.json");
-
-type VoiceMap = Record<string, string>;
-
-let voiceMap: VoiceMap | null = null;
-
-function loadVoiceMap(): VoiceMap {
-  if (voiceMap) return voiceMap;
-  const raw = JSON.parse(readFileSync(mapPath, "utf8")) as unknown;
-  if (!raw || typeof raw !== "object") {
-    throw new Error("Invalid fish-voice-map.json");
-  }
-  voiceMap = raw as VoiceMap;
-  return voiceMap;
-}
-
-export function resolveFishVoiceId(voiceKey: string): string | null {
-  const map = loadVoiceMap();
-  const id = map[voiceKey];
-  return typeof id === "string" && id.length > 0 ? id : null;
-}
 
 const audioCache = new Map<string, Buffer>();
 const CACHE_MAX_ENTRIES = 200;
 
-function cacheKey(voiceKey: string, text: string): string {
-  return createHash("sha256").update(`${voiceKey}\0${text}`).digest("hex");
+function cacheKey(referenceId: string, text: string): string {
+  return createHash("sha256").update(`${referenceId}\0${text}`).digest("hex");
 }
 
 function remember(key: string, buffer: Buffer): void {
@@ -47,23 +23,29 @@ export type FishTtsResult = {
 };
 
 /**
- * Synthesize MP3 via Fish Audio. Uses in-memory cache keyed by voiceKey+text.
+ * Synthesize MP3 via Fish Audio. The client owns the voice catalog and sends
+ * a fully-resolved `referenceId`, so this stays a pure synthesizer: no map
+ * lookups, no DB reads — just synthesis + cache keyed by referenceId+text.
  */
 export async function synthesizeFishSpeech(args: {
-  voiceKey: string;
+  referenceId: string;
   text: string;
+  characterId?: string | null;
+  characterName?: string | null;
 }): Promise<FishTtsResult> {
   const apiKey = env.FISH_AUDIO_API_KEY;
   if (!apiKey) {
     throw new Error("FISH_AUDIO_API_KEY is not configured");
   }
 
-  const referenceId = resolveFishVoiceId(args.voiceKey);
-  if (!referenceId) {
-    throw new Error(`Unknown voiceKey: ${args.voiceKey}`);
-  }
+  console.log(
+    `[TTS][fishClient] referenceId=${args.referenceId} ` +
+      `characterId=${args.characterId ?? "<none>"} ` +
+      `characterName="${args.characterName ?? "unknown"}" ` +
+      `text="${args.text.slice(0, 40)}"`
+  );
 
-  const key = cacheKey(args.voiceKey, args.text);
+  const key = cacheKey(args.referenceId, args.text);
   const hit = audioCache.get(key);
   if (hit) {
     return { audio: hit, contentType: "audio/mpeg", cached: true };
@@ -74,15 +56,15 @@ export async function synthesizeFishSpeech(args: {
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      model: env.FISH_TTS_MODEL
     },
     body: JSON.stringify({
       text: args.text,
-      reference_id: referenceId,
+      reference_id: args.referenceId,
+      model: env.FISH_TTS_MODEL,
       format: "mp3",
       mp3_bitrate: 128,
-      latency: "normal"
-    })
+      latency: "normal",
+    }),
   });
 
   if (!response.ok) {

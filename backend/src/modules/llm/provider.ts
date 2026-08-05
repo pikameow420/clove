@@ -1,6 +1,7 @@
 import { env } from "../../lib/env";
 import { chatWithGemini, streamChatWithGemini } from "./gemini-client";
 import { chatWithOllama, streamChatWithOllama } from "./ollama-client";
+import { chatWithOpenRouter, streamChatWithOpenRouter } from "./openrouter-client";
 import type { LlmChatMessage, LlmChatOptions, LlmChatResult, LlmTokenHandler } from "./types";
 
 export type LlmProviderName = (typeof env)["LLM_PROVIDER"];
@@ -22,6 +23,8 @@ export async function llmChat(
       return chatWithOllama(messages, options);
     case "gemini":
       return chatWithGemini(messages, options);
+    case "openrouter":
+      return chatWithOpenRouter(messages, options);
     default: {
       const exhaustive: never = env.LLM_PROVIDER;
       throw new Error(`Unhandled LLM provider: ${exhaustive}`);
@@ -39,6 +42,8 @@ export async function llmChatStream(
       return streamChatWithOllama(messages, onToken, options);
     case "gemini":
       return streamChatWithGemini(messages, onToken, options);
+    case "openrouter":
+      return streamChatWithOpenRouter(messages, onToken, options);
     default: {
       const exhaustive: never = env.LLM_PROVIDER;
       throw new Error(`Unhandled LLM provider: ${exhaustive}`);

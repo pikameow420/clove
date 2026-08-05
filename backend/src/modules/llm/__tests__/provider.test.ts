@@ -7,7 +7,11 @@ import { activeProvider, extractJsonObject } from "../provider";
 describe("activeProvider", () => {
   it("exposes the LLM_PROVIDER flag so call sites can log which backend is live", () => {
     assert.equal(activeProvider(), env.LLM_PROVIDER);
-    assert.ok(activeProvider() === "ollama" || activeProvider() === "gemini");
+    assert.ok(
+      activeProvider() === "ollama" ||
+        activeProvider() === "gemini" ||
+        activeProvider() === "openrouter"
+    );
   });
 });
 

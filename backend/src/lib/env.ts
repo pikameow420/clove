@@ -7,12 +7,15 @@ const envSchema = z.object({
   HOST: z.string().default("0.0.0.0"),
   CORS_ORIGIN: z.string().default("*"),
   ADMIN_API_KEY: z.string().min(1),
-  LLM_PROVIDER: z.enum(["ollama", "gemini"]).default("ollama"),
+  LLM_PROVIDER: z.enum(["ollama", "gemini", "openrouter"]).default("ollama"),
   OLLAMA_BASE_URL: z.string().url().optional(),
   OLLAMA_MODEL: z.string().min(1).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
   GEMINI_BASE_URL: z.string().url().default("https://generativelanguage.googleapis.com/v1beta"),
   GEMINI_MODEL: z.string().min(1).default("gemini-flash-lite-latest"),
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
+  OPENROUTER_MODEL: z.string().min(1).optional(),
   // Flash-Lite reasons before answering by default, which costs seconds of
   // latency we do not want in a chat. Set to "off" for models that reject it.
   GEMINI_THINKING_LEVEL: z.enum(["off", "minimal", "low", "medium", "high"]).default("minimal"),
@@ -95,6 +98,23 @@ function assertProviderCredentials(value: z.infer<typeof envSchema>, ctx: z.Refi
           code: z.ZodIssueCode.custom,
           path: ["GEMINI_API_KEY"],
           message: "GEMINI_API_KEY is required when LLM_PROVIDER is \"gemini\""
+        });
+      }
+      return;
+    }
+    case "openrouter": {
+      if (!value.OPENROUTER_API_KEY) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["OPENROUTER_API_KEY"],
+          message: "OPENROUTER_API_KEY is required when LLM_PROVIDER is \"openrouter\""
+        });
+      }
+      if (!value.OPENROUTER_MODEL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["OPENROUTER_MODEL"],
+          message: "OPENROUTER_MODEL is required when LLM_PROVIDER is \"openrouter\""
         });
       }
       return;

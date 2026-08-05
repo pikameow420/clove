@@ -1,6 +1,6 @@
 # Character Chat Backend (MVP)
 
-Fastify + Prisma backend for a swipe-to-chat character app with local Ollama LLM integration.
+Fastify + Prisma backend for a swipe-to-chat character app with pluggable LLM providers (Ollama, Gemini, or OpenRouter).
 
 ## Supabase Database Notes
 
@@ -138,12 +138,17 @@ Product rules live in [`docs/intimacy-level.md`](docs/intimacy-level.md). Conver
   - `done`
   - `error`
 
-## Ollama
+## LLM Providers
 
-- Configure:
-  - `OLLAMA_BASE_URL`
-  - `OLLAMA_MODEL`
-- Frontend should never call Ollama directly; always go through backend.
+The backend supports three text-generation providers, selected with `LLM_PROVIDER`:
+
+- **Ollama** (self-hosted): `OLLAMA_BASE_URL`, `OLLAMA_MODEL`
+- **Gemini** (Google AI Studio): `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_BASE_URL`, `GEMINI_THINKING_LEVEL`
+- **OpenRouter** (hosted API): `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL`
+
+Only the selected provider's credentials are required. `OPENROUTER_MODEL` is the full model slug from openrouter.ai/models, e.g. `google/gemma-3-27b-it:free`.
+
+Frontend should never call any LLM provider directly; always go through backend.
 
 ## Frontend Integration Guide (React AI Agent UI)
 

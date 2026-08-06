@@ -22,7 +22,7 @@ export type CharacterReply = {
   segments: RoleplaySegment[] | null;
 };
 
-/** Plain texting stays snappy; roleplay needs room for a scene beat + dialogue. */
+/** Plain texting stays snappy; roleplay/NSFW needs room for a scene beat + dialogue. */
 const TEXTING_MAX_TOKENS = 256;
 const ROLEPLAY_MAX_TOKENS = 512;
 
@@ -32,7 +32,7 @@ function sanitizeAssistantText(content: string): string {
 
 function replyOptions() {
   return {
-    maxTokens: env.ROLEPLAY_ENABLED ? ROLEPLAY_MAX_TOKENS : TEXTING_MAX_TOKENS
+    maxTokens: env.ROLEPLAY_ENABLED || env.NSFW_ROLEPLAY_ENABLED ? ROLEPLAY_MAX_TOKENS : TEXTING_MAX_TOKENS
   };
 }
 
@@ -42,6 +42,8 @@ function replyOptions() {
  * the plain content path.
  */
 export function roleplaySegmentsForReply(content: string): RoleplaySegment[] | null {
+  // Only normal roleplay mode uses asterisk narration. NSFW mode is first-person
+  // with no asterisks, so there are no segments to parse.
   if (!env.ROLEPLAY_ENABLED) {
     return null;
   }

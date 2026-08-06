@@ -24,6 +24,10 @@ const envSchema = z.object({
     .string()
     .default("true")
     .transform((value) => value !== "false"),
+  NSFW_ROLEPLAY_ENABLED: z
+    .string()
+    .default("true")
+    .transform((value) => value !== "false"),
   MAX_INPUT_CHARS: z.coerce.number().int().positive().default(2000),
   MAX_CONTEXT_MESSAGES: z.coerce.number().int().positive().default(20),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),

@@ -52,7 +52,15 @@ export const authPlugin = fp(async (app) => {
       return;
     }
 
-    const token = extractBearerToken(request.headers.authorization);
+    // The TTS stream endpoint is fetched by the native audio player, which
+    // cannot set an Authorization header. It carries the access token as a
+    // `token` query param instead. Header auth remains the default for all
+    // other routes.
+    const queryToken =
+      typeof (request.query as Record<string, unknown>)?.token === "string"
+        ? ((request.query as Record<string, unknown>).token as string)
+        : null;
+    const token = extractBearerToken(request.headers.authorization) ?? queryToken;
     if (!token) {
       return reply.unauthorized("Missing Authorization: Bearer <token> header");
     }

@@ -1,6 +1,8 @@
 import type { MediaStatus, Message, MessageSource, ProactiveTrigger } from "../../generated/prisma/client";
+import type { MessageWithAttachments } from "../images/attachment-serializer";
 import { prisma } from "../../lib/db/prisma";
 import { env } from "../../lib/env";
+import { logger } from "../../lib/logger";
 import { notifyAssistantReply } from "../../lib/push/expo-push";
 import { applyIntimacyEvents, type IntimacyEventInput } from "../intimacy/scoring";
 import { serializeIntimacy, type IntimacySnapshot } from "../intimacy/serializer";
@@ -43,9 +45,73 @@ type PersistAssistantMessageArgs = {
 };
 
 export type PersistAssistantMessageResult = {
-  message: Message;
+  message: MessageWithAttachments;
   intimacy: IntimacySnapshot;
 };
+
+/**
+ * The memory refresh runs a second LLM call roughly every 4 messages and used
+ * to block the reply for its full duration (~5s measured). It now runs in the
+ * background once the reply is persisted; the summary and warmth points land
+ * shortly after. Overlapping refreshes for one conversation are skipped — the
+ * next turn re-triggers because the stored summary's messageCount stays stale
+ * until a refresh completes.
+ */
+const memoryRefreshInFlight = new Set<string>();
+
+type ScheduleMemoryRefreshArgs = {
+  conversationId: string;
+  assistantMessageId: string;
+  characterName: string;
+  existingSummary: string | null;
+  allMessages: Message[];
+  latestUserInput: string;
+  latestAssistantReply: string;
+};
+
+function scheduleMemoryRefresh(args: ScheduleMemoryRefreshArgs): void {
+  if (memoryRefreshInFlight.has(args.conversationId)) {
+    return;
+  }
+  memoryRefreshInFlight.add(args.conversationId);
+
+  refreshConversationMemory({
+    characterName: args.characterName,
+    existingSummary: args.existingSummary,
+    allMessages: args.allMessages,
+    latestUserInput: args.latestUserInput,
+    latestAssistantReply: args.latestAssistantReply
+  })
+    .then(async (refresh) => {
+      if (refresh.summary !== args.existingSummary) {
+        await prisma.conversation.update({
+          where: { id: args.conversationId },
+          data: { summary: refresh.summary }
+        });
+      }
+      if (refresh.warmthPoints !== null) {
+        await applyIntimacyEvents({
+          conversationId: args.conversationId,
+          events: [
+            {
+              eventType: "memory_warmth",
+              sourceId: args.assistantMessageId,
+              requestedPoints: refresh.warmthPoints
+            }
+          ]
+        });
+      }
+    })
+    .catch((error) => {
+      logger.warn(
+        { err: error, conversationId: args.conversationId },
+        "Background conversation memory refresh failed"
+      );
+    })
+    .finally(() => {
+      memoryRefreshInFlight.delete(args.conversationId);
+    });
+}
 
 /**
  * Notifications and list previews show one line of text, where a stripped scene
@@ -86,15 +152,8 @@ export async function persistAssistantMessage(
             }
           }
         : {})
-    }
-  });
-
-  const memoryRefresh = await refreshConversationMemory({
-    characterName: args.characterName,
-    existingSummary: args.existingSummary,
-    allMessages: [...args.recentMessages, assistantMessage],
-    latestUserInput: args.latestUserInput ?? "",
-    latestAssistantReply: args.latestAssistantReply
+    },
+    include: { attachments: true }
   });
 
   const isProactive = args.source === "assistant_proactive";
@@ -117,7 +176,6 @@ export async function persistAssistantMessage(
     where: { id: args.conversationId },
     data: {
       lastMessageAt: now,
-      summary: memoryRefresh.summary,
       ...(isProactive
         ? {
             lastProactiveMessageAt: now,
@@ -126,6 +184,18 @@ export async function persistAssistantMessage(
           }
         : {})
     }
+  });
+
+  // Off the response path: the reply no longer waits ~5s on the memory LLM
+  // call. Summary + warmth apply asynchronously when the refresh resolves.
+  scheduleMemoryRefresh({
+    conversationId: args.conversationId,
+    assistantMessageId: assistantMessage.id,
+    characterName: args.characterName,
+    existingSummary: args.existingSummary,
+    allMessages: [...args.recentMessages, assistantMessage],
+    latestUserInput: args.latestUserInput ?? "",
+    latestAssistantReply: args.latestAssistantReply
   });
 
   const intimacyEvents: IntimacyEventInput[] = [...(args.intimacyEvents ?? [])];
@@ -144,14 +214,6 @@ export async function persistAssistantMessage(
   });
   if (sharedDay) {
     intimacyEvents.push(sharedDay);
-  }
-
-  if (memoryRefresh.warmthPoints !== null) {
-    intimacyEvents.push({
-      eventType: "memory_warmth",
-      sourceId: assistantMessage.id,
-      requestedPoints: memoryRefresh.warmthPoints
-    });
   }
 
   const intimacy =

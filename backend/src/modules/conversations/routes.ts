@@ -432,11 +432,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         await attachAssistantMessageToRequest(imagePlan.imageRequestId, persisted.message.id);
       }
 
-      const withAttachments = await prisma.message.findUniqueOrThrow({
-        where: { id: persisted.message.id },
-        include: { attachments: true }
-      });
-      const [serialized] = await serializeMessagesWithAttachments([withAttachments]);
+      const [serialized] = await serializeMessagesWithAttachments([persisted.message]);
       return {
         assistantMessage: serialized!,
         intimacy: mergeIntimacy(userTurn.intimacy, persisted.intimacy, intimacy)
